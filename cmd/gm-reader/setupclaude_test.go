@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -50,5 +51,26 @@ func TestAddToClaudeDesktopNewFileAndBadJSON(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(bad); string(b) != "{not json" {
 		t.Fatal("invalid config was modified")
+	}
+}
+
+func TestConfigPathsIncludeStoreInstall(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Store install layout is Windows-only")
+	}
+	local, roaming := t.TempDir(), t.TempDir()
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv("APPDATA", roaming)
+	pkg := filepath.Join(local, "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude")
+	if err := os.MkdirAll(pkg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := claudeDesktopConfigPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(pkg, "claude_desktop_config.json"), filepath.Join(roaming, "Claude", "claude_desktop_config.json")}
+	if len(paths) != 2 || paths[0] != want[0] || paths[1] != want[1] {
+		t.Fatalf("got %v want %v", paths, want)
 	}
 }
