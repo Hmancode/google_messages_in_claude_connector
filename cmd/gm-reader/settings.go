@@ -15,6 +15,7 @@ import (
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/paths"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/secure"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/session"
+	"github.com/Hmancode/google_messages_in_claude_connector/internal/signin"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/store"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/syncer"
 )
@@ -202,6 +203,9 @@ func runForget(args []string) error {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			fmt.Println("Could not delete", name+":", err, "(quit Claude and try again)")
 		}
+	}
+	if err := signin.Cleanup(filepath.Join(dir, signin.DefaultProfileName)); err != nil {
+		fmt.Println("Could not delete the temporary sign-in folder:", err, "(close any Firefox window gm-reader opened and try again)")
 	}
 	_ = os.Remove(dir) // only succeeds if the folder is now empty
 	fmt.Println("Deleted.")

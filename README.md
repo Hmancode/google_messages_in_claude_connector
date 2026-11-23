@@ -4,7 +4,7 @@ gm-reader is a small, open-source [MCP](https://modelcontextprotocol.io) server 
 
 Reading is always on. Sending messages, reacting, starting chats and sending files are **off unless you turn them on**. When they are on, every message, new chat and file pops up a Yes/No box on your computer first.
 
-**New here? Follow [SETUP.md](SETUP.md).** It walks through everything step by step.
+**New here?** Download `gm-reader.exe` from the [latest release](https://github.com/Hmancode/google_messages_in_claude_connector/releases) and double-click it. A guided setup installs it, links your phone (you sign in to Google in a Firefox window it opens and tap an emoji on your phone) and connects Claude. [SETUP.md](SETUP.md) explains each step. To update, do the same with a newer release.
 
 > ⚠️ gm-reader uses Google's **unofficial** Messages for Web protocol (through [libgm](https://github.com/mautrix/gmessages/tree/main/pkg/libgm)). Google could break it at any time, and in theory could flag the account. Please read [Risks](#risks) before you pair.
 
@@ -47,6 +47,7 @@ A separate grep (`scripts/check-banned.sh`) runs in CI as a second layer.
 - No telemetry. The only network traffic is to Google's Messages servers, and only after you pair. If you turn on the optional [new-text hook](#building-an-assistant), gm-reader also sends one small request per batch of new texts to the address you choose. It contains conversation IDs and counts only, never message text, names or numbers.
 - The pairing session is stored in `%LOCALAPPDATA%\gm-reader\session.bin`, encrypted with Windows DPAPI (user scope). Only your Windows account on this computer can decrypt it.
 - The message cache (`cache.db`, SQLite) is **not encrypted by gm-reader**. It's protected only if your drive uses BitLocker or device encryption. To keep nothing on disk, use `serve --no-cache`: the cache then lives in memory and disappears when Claude closes.
+- **The automatic sign-in reads cookies only from a throwaway Firefox profile.** The setup starts Firefox with a temporary profile it creates in `%LOCALAPPDATA%\gm-reader\signin-profile`, reads the Google cookies that Messages for Web uses from that profile's cookie database, and deletes the profile. It never opens your own Firefox profiles or any other browser's data (`internal/signin`). The manual copy-as-cURL path is still there (`setup --manual`).
 - Logs (`gm-reader.log`) never contain message text, names or cookies. libgm's own logs pass through a filter that removes raw data fields. A test checks this with a canary message.
 
 ## Building an assistant
@@ -82,14 +83,14 @@ What your assistant should say, and what it may share, is up to the instructions
 - **Unofficial protocol.** This works the way messages.google.com does, but Google doesn't offer it as an API. It could stop working, and Google could in theory flag the account.
 - **One active web session at a time.** When gm-reader connects, Google treats it as the active Messages for Web session, just as opening messages.google.com does. That happens inside libgm's connect step and can't be removed. If you then open Messages for Web in a browser, the browser takes over and gm-reader's live updates pause until Claude restarts. gm-reader never grabs the session back by itself.
 - **The phone must stay on and online.** Messages are relayed through your phone. Google drops the pairing after about **14 days** without contact. `pairing_status` warns when 4 or fewer days are left.
-- **Google cookies can expire** (for example if you sign out of Google in the browser you copied them from). Run `gm-reader pair --refresh-cookies`; your phone doesn't need to be re-paired.
+- **Google cookies can expire** (for example if that sign-in is ended from your Google account's device list). Double-click gm-reader.exe and type `s` to sign in again, or run `gm-reader pair --refresh-cookies`; your phone doesn't need to be re-paired.
 - **Write actions are real.** A sent message can't be unsent. Keep the confirmation box on (the default) and read it before clicking Yes.
 - **Labeled replies skip the box.** If you turn them on, Claude can send short, signed replies without asking you. The code-enforced limits above shrink the risk; they don't remove it, because a cleverly worded text could still try to steer what your assistant says.
 
 ## Revoking access
 
 1. On your phone: **Google Messages → your profile picture → Device pairing →** remove the device.
-2. On your computer: run `gm-reader forget`, or delete the folder `%LOCALAPPDATA%\gm-reader\`.
+2. On your computer: run `gm-reader forget`, or delete the folder `%LOCALAPPDATA%\gm-reader\`. The program itself is in `%LOCALAPPDATA%\Programs\gm-reader\` (or wherever you first installed it).
 3. Remove the `gm-reader` entry from Claude Desktop's config (`%APPDATA%\Claude\claude_desktop_config.json`), or run `claude mcp remove gm-reader` for Claude Code.
 
 ## Where it works
@@ -117,6 +118,7 @@ cd google_messages_in_claude_connector
 go test ./...
 ./scripts/check-banned.sh        # in Git Bash or WSL
 $env:CGO_ENABLED="0"; go build -trimpath -o gm-reader.exe ./cmd/gm-reader
+.\gm-reader.exe setup
 ```
 
 CI (`.github/workflows/ci.yml`) runs vet, all tests and the guard, the grep, and a smoke test on Linux and Windows. The smoke test starts `serve`, speaks MCP to it, and checks with `netstat` that it has no open ports. Publishing a GitHub release (for example `v0.1.0`) makes CI build `gm-reader.exe` and attach it, with its SHA-256 checksum, to that release.
