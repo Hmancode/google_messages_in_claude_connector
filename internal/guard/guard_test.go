@@ -68,6 +68,7 @@ var unsafeAllowed = set(
 	"internal/secure/secure_windows.go",
 	"internal/confirm/dialog_windows.go",
 	"internal/clipboard/clipboard_windows.go",
+	"internal/claudeapp/claudeapp_windows.go",
 )
 
 func set(names ...string) map[string]bool {

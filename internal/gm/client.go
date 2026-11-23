@@ -155,7 +155,9 @@ func (c *Client) handle(raw any) {
 	case *libgm.WrappedMessage:
 		c.touch()
 		if evt.Message != nil {
-			c.ev.Message(c.convertMessage(evt.Message))
+			m := c.convertMessage(evt.Message)
+			m.Live = !evt.IsOld
+			c.ev.Message(m)
 		}
 	case *gmproto.Conversation:
 		c.touch()
@@ -271,6 +273,7 @@ func (c *Client) Conversations(ctx context.Context, limit int) ([]model.Conversa
 	if err != nil {
 		return nil, err
 	}
+	c.touch()
 	out := make([]model.Conversation, 0, len(resp.GetConversations()))
 	for _, conv := range resp.GetConversations() {
 		out = append(out, c.noteConversation(conv))
@@ -285,6 +288,7 @@ func (c *Client) Conversation(ctx context.Context, id string) (model.Conversatio
 	if err != nil {
 		return model.Conversation{}, err
 	}
+	c.touch()
 	if conv.GetConversationID() == "" {
 		return model.Conversation{}, fmt.Errorf("conversation %q not found", id)
 	}
@@ -305,12 +309,15 @@ func (c *Client) Messages(ctx context.Context, convID string, limit int, before 
 	}
 	var cur *gmproto.Cursor
 	if before != nil {
-		cur = &gmproto.Cursor{LastItemID: before.MessageID, LastItemTimestamp: before.Time.UnixMicro()}
+		// The protocol's cursor timestamp is in milliseconds (message
+		// timestamps are in microseconds). See mautrix-gmessages backfill.go.
+		cur = &gmproto.Cursor{LastItemID: before.MessageID, LastItemTimestamp: before.Time.UnixMilli()}
 	}
 	resp, err := c.api.FetchMessages(ctx, convID, int64(limit), cur)
 	if err != nil {
 		return nil, err
 	}
+	c.touch()
 	out := make([]model.Message, 0, len(resp.GetMessages()))
 	for _, m := range resp.GetMessages() {
 		out = append(out, c.convertMessage(m))
@@ -325,6 +332,7 @@ func (c *Client) Contacts(ctx context.Context) ([]model.Contact, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.touch()
 	out := make([]model.Contact, 0, len(resp.GetContacts()))
 	for _, ct := range resp.GetContacts() {
 		phone := ct.GetNumber().GetFormattedNumber()

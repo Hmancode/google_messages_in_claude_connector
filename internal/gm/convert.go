@@ -37,10 +37,11 @@ func convertConversation(conv *gmproto.Conversation) model.Conversation {
 			phone = p.GetID().GetNumber()
 		}
 		mp := model.Participant{
-			ID:    p.GetID().GetParticipantID(),
-			Name:  participantName(p),
-			Phone: phone,
-			IsMe:  p.GetIsMe(),
+			ID:        p.GetID().GetParticipantID(),
+			Name:      participantName(p),
+			Phone:     phone,
+			IsMe:      p.GetIsMe(),
+			IsContact: p.GetContactID() != "",
 		}
 		if mp.IsMe {
 			mp.Name = "Me"

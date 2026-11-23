@@ -5,9 +5,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/Hmancode/google_messages_in_claude_connector/internal/install"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/logx"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/mcpserver"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/paths"
@@ -32,6 +34,7 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	defer closer.Close()
 	log.Info().Str("version", version).Bool("no_cache", *noCache).Msg("Starting MCP server")
+	install.CleanupOld(filepath.Dir(exePath())) // copies left by an update, once no longer running
 
 	dbPath := ""
 	if !*noCache {

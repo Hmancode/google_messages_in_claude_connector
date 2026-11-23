@@ -2,6 +2,7 @@ package curlcookies
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -64,5 +65,32 @@ func TestDoesNotConfuseSimilarNames(t *testing.T) {
 	}
 	if got["APISID"] != "good2" || got["SAPISID"] != "good" {
 		t.Fatalf("APISID/SAPISID confused: %v", got)
+	}
+}
+
+func TestNoCookiesErrorPointsToSignIn(t *testing.T) {
+	_, err := Parse("curl 'https://messages.google.com/web/config' -H 'accept: */*'")
+	if err == nil || !strings.Contains(err.Error(), "AccountChooser") {
+		t.Fatalf("expected sign-in hint, got %v", err)
+	}
+}
+
+func TestDescribeNeverShowsValues(t *testing.T) {
+	cases := map[string]string{
+		"":                                       "empty",
+		"https://messages.google.com/web/config": "don't look like a cURL",
+		"curl 'https://example.com' -b 'SID=topsecret'":                            "not for the messages.google.com",
+		"curl 'https://messages.google.com/web/config' -H 'accept: */*'":           "no cookies",
+		"curl 'https://messages.google.com/web/config' -b 'SID=topsecret'":         "not all of the ones",
+		"curl 'https://messages.google.com/web/config' -H 'Cookie: SID=topsecret'": "not all of the ones",
+	}
+	for in, want := range cases {
+		got := Describe(in)
+		if !strings.Contains(got, want) {
+			t.Errorf("Describe(%q) = %q, want it to mention %q", in, got, want)
+		}
+		if strings.Contains(got, "topsecret") {
+			t.Errorf("Describe leaked a cookie value: %q", got)
+		}
 	}
 }

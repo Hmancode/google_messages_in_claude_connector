@@ -32,11 +32,90 @@ const (
 
 // Settings are the user's choices about what Claude may do.
 type Settings struct {
-	AllowSend        bool   `json:"allow_send"`
-	AllowReact       bool   `json:"allow_react"`
-	AllowAttachments bool   `json:"allow_attachments"`
-	AllowNewChats    bool   `json:"allow_new_chats"`
-	ConfirmMode      string `json:"confirm_mode"`
+	AllowSend        bool       `json:"allow_send"`
+	AllowReact       bool       `json:"allow_react"`
+	AllowAttachments bool       `json:"allow_attachments"`
+	AllowNewChats    bool       `json:"allow_new_chats"`
+	ConfirmMode      string     `json:"confirm_mode"`
+	Automation       Automation `json:"automation"`
+}
+
+// Automation holds the optional features for building an assistant on top of
+// gm-reader: labeled replies (short, signed replies sent without the
+// confirmation box, under limits enforced in code) and a hook that pings a URL
+// when new texts arrive. Both are off by default.
+type Automation struct {
+	// Groups lists group-chat conversation IDs that automation may watch and
+	// reply in. One-on-one chats with saved contacts are always included.
+	Groups []string `json:"groups,omitempty"`
+	// GroupsWithContacts also includes every group chat that has at least one
+	// person saved in the phone's contacts.
+	GroupsWithContacts bool          `json:"groups_with_contacts,omitempty"`
+	Replies            ReplySettings `json:"replies"`
+	Hook               HookSettings  `json:"hook"`
+}
+
+// ReplySettings configures labeled replies.
+type ReplySettings struct {
+	Enabled bool `json:"enabled"`
+	// Signature is appended by gm-reader to every labeled reply, on its own line.
+	Signature     string `json:"signature"`
+	MaxChars      int    `json:"max_chars,omitempty"`      // per reply, before the signature
+	PerChatHour   int    `json:"per_chat_hour,omitempty"`  // labeled replies per chat in any 60 minutes
+	DailyMax      int    `json:"daily_max,omitempty"`      // labeled replies per 24 hours, all chats
+	WindowMinutes int    `json:"window_minutes,omitempty"` // the newest message must be theirs and this recent
+}
+
+// Defaults for labeled replies.
+const (
+	DefaultReplyMaxChars    = 280
+	DefaultReplyPerChatHour = 3
+	DefaultReplyDailyMax    = 15
+	DefaultReplyWindow      = 120
+)
+
+// Limits returns the settings with defaults filled in.
+func (r ReplySettings) Limits() ReplySettings {
+	if r.MaxChars <= 0 {
+		r.MaxChars = DefaultReplyMaxChars
+	}
+	if r.PerChatHour <= 0 {
+		r.PerChatHour = DefaultReplyPerChatHour
+	}
+	if r.DailyMax <= 0 {
+		r.DailyMax = DefaultReplyDailyMax
+	}
+	if r.WindowMinutes <= 0 {
+		r.WindowMinutes = DefaultReplyWindow
+	}
+	return r
+}
+
+// HookSettings configures the new-text hook.
+type HookSettings struct {
+	Enabled      bool   `json:"enabled"`
+	URL          string `json:"url"`
+	Token        string `json:"token"` // sent as a bearer token; never logged or shown
+	BatchSeconds int    `json:"batch_seconds,omitempty"`
+}
+
+// GroupSet returns the allowed group IDs as a set.
+func (a Automation) GroupSet() map[string]bool {
+	m := map[string]bool{}
+	for _, g := range a.Groups {
+		m[g] = true
+	}
+	return m
+}
+
+// AllowsGroup reports whether a group chat is on the automation list.
+func (a Automation) AllowsGroup(conversationID string) bool {
+	for _, g := range a.Groups {
+		if g == conversationID {
+			return true
+		}
+	}
+	return false
 }
 
 // AnyWrite reports whether any write action is turned on.
@@ -61,6 +140,9 @@ type File struct {
 	// LastContact is the last time data arrived from the phone. Google drops
 	// the pairing after about 14 days without contact.
 	LastContact time.Time `json:"last_contact"`
+	// ReplyLog records when labeled replies were sent, per conversation, for
+	// the rate limits. Entries older than 24 hours are dropped.
+	ReplyLog map[string][]time.Time `json:"reply_log,omitempty"`
 }
 
 // Store reads and writes the session file. Safe for concurrent use.

@@ -77,6 +77,28 @@ func addToClaudeDesktop(path, exe string) error {
 	return os.Rename(tmp, path)
 }
 
+// configuredExe returns the program Claude Desktop's config runs for
+// gm-reader, if there is one.
+func configuredExe(path string) (string, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var cfg struct {
+		MCPServers map[string]struct {
+			Command string `json:"command"`
+		} `json:"mcpServers"`
+	}
+	if json.Unmarshal(raw, &cfg) != nil {
+		return "", false
+	}
+	s, ok := cfg.MCPServers["gm-reader"]
+	if !ok || s.Command == "" {
+		return "", false
+	}
+	return s.Command, true
+}
+
 func exePath() string {
 	exe, err := os.Executable()
 	if err != nil {

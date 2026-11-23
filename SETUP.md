@@ -1,153 +1,68 @@
 # Setting up gm-reader on Windows
 
-This guide assumes no programming experience. It takes about 15 minutes.
+This guide assumes no programming experience. It takes about 5 minutes.
 
 **What you need:**
 
 - Your Windows laptop, with **Claude Desktop** (or Claude Code) installed
 - Your Android phone, using **Google Messages** as its texting app, turned on and online
-- **Firefox**, installed from [mozilla.org](https://www.mozilla.org/firefox/). It's only needed for one step; Chrome often doesn't work for that step.
+- **Firefox**. If it isn't installed, the setup opens the download page for you. (Chrome and Edge usually don't work for the sign-in step.)
 
 Before you start, read the [Risks section of the README](README.md#risks). In short: pairing gives gm-reader access to every conversation in your Google Messages, and it uses an unofficial Google protocol.
 
 ---
 
-## 1. Download gm-reader
+## 1. Download and run it
 
 1. Go to <https://github.com/Hmancode/google_messages_in_claude_connector/releases> and open the newest release.
 2. Under **Assets**, click **gm-reader.exe** to download it.
 3. Your browser may warn that the file "isn't commonly downloaded." That's normal for new programs that aren't signed by a company. Choose **Keep** (in Edge: click the **…** next to the download, then **Keep**, then **Keep anyway**).
+4. Open your **Downloads** folder and **double-click gm-reader.exe**.
+5. If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway**. Windows shows this for programs that aren't signed by a company. You only see it for the downloaded copy.
 
-*Prefer to build it yourself?* See "Building from source" in the README, then continue from step 2.
+A window opens and walks you through three steps. Each one is explained below.
 
-## 2. Put it in a permanent folder
+*Prefer to build it yourself?* See "Building from source" in the README, then run `gm-reader.exe setup`.
 
-Claude will run gm-reader from wherever you put it, so pick a place where it can stay.
+## 2. What the setup does
 
-1. Open **File Explorer** (the folder icon on the taskbar).
-2. Click **This PC** in the left panel, then double-click **Local Disk (C:)**.
-3. Right-click an empty area, choose **New → Folder**, and name it `Tools`.
-4. Open `Tools`, create another folder inside it named `gm-reader`.
-5. Move `gm-reader.exe` from your **Downloads** folder into `C:\Tools\gm-reader\`.
+### Step 1: Install
 
-The full path is now `C:\Tools\gm-reader\gm-reader.exe`.
+gm-reader copies itself to `%LOCALAPPDATA%\Programs\gm-reader` (a folder in your user account that OneDrive doesn't sync). Claude runs it from there. If Claude already uses gm-reader from another folder, such as `C:\Tools\gm-reader`, the setup updates that copy instead. You can delete the downloaded file afterwards.
 
-## 3. Open PowerShell in that folder
+### Step 2: Link your phone
 
-1. In File Explorer, open `C:\Tools\gm-reader`.
-2. Click the address bar at the top (where it says `This PC > Local Disk (C:) > Tools > gm-reader`). It turns into editable text.
-3. Type `powershell` and press **Enter**. A blue or black window opens, already in the right folder.
+1. **Sign in to Google.** Press **Enter** and Firefox opens a separate window just for this sign-in. Sign in with the **same Google account your phone's Google Messages uses**, and only that one. (To check on the phone: open Google Messages and tap your profile picture in the top right; the account is shown at the top.)
+2. After signing in, Google shows a page full of code-like text that starts with something like `["2026…`. **That means you're done.** gm-reader picks up the sign-in and closes the window by itself. Don't click "Sign out" anywhere.
+3. **Tap the emoji on your phone.** gm-reader shows an emoji, for example 🦊. Your phone shows a Google Messages prompt asking you to confirm a new device. Tap the **same emoji** there.
+   - If the window shows a box instead of the emoji, open the link printed under it to see the picture.
+   - If nothing appears on the phone, open Google Messages on the phone and look for the prompt there.
+4. **Choose whether Claude may send.** gm-reader asks:
 
-To check it worked, type this and press **Enter**:
-
-```powershell
-.\gm-reader.exe version
-```
-
-**If Windows shows "Windows protected your PC"** (SmartScreen): click **More info**, then **Run anyway**. Windows shows this for new programs that aren't signed by a company. You only need to do it once.
-
-## 4. Pair with your phone
-
-In the PowerShell window, type:
-
-```powershell
-.\gm-reader.exe pair
-```
-
-gm-reader prints instructions. Here they are in more detail.
-
-**a. Open a Firefox private window.** Open Firefox and press **Ctrl + Shift + P**. A purple-themed window opens; that's the private window.
-
-**b. Sign in.** In the private window's address bar, go to:
-
-```
-https://messages.google.com/web/config
-```
-
-Sign in with the **same Google account your phone's Google Messages uses**. (To check on the phone: open Google Messages, tap your profile picture in the top right; the account is shown at the top.) Sign in to **only that one account** in this window. After signing in, you'll see a mostly blank page or some text. That's expected.
-
-**c. Open the developer tools.** Press **F12**. A panel opens at the bottom or side of the window. Click the tab named **Network**.
-
-**d. Reload.** Press **F5**. A list of rows fills the Network panel. Near the top is a row whose **File** column says `config`.
-
-**e. Copy the request.** Right-click the `config` row, hover over **Copy Value**, and click **Copy as cURL (Windows)**. "Copy as cURL (POSIX)" works too.
-
-**f. Go back to PowerShell** and press **Enter**. gm-reader reads what you copied straight from the clipboard, so you don't need to paste anything. It should say something like:
-
-```
-Found the cookies gm-reader needs (APISID, HSID, OSID, SAPISID, SID, SSID, __Secure-1PSIDTS).
-```
-
-If it says some cookies are missing, check you copied the `config` row (not another one), that you're signed in to only one account, and that you used a private window. Then run `.\gm-reader.exe pair` again.
-
-**g. Tap the emoji on your phone.** gm-reader shows an emoji, for example 🦊. Your phone should show a Google Messages notification or screen asking you to confirm a new device. Tap the **same emoji** there.
-
-- If PowerShell shows a box instead of the emoji, open the link gm-reader prints under it to see the picture.
-- If nothing appears on the phone, open Google Messages on the phone and look for the prompt there.
-
-When it works, PowerShell says **Paired with your phone.**
-
-**h. Choose whether Claude may send.** gm-reader asks:
-
-```
-Let Claude send messages, react, start chats and send files? [y/N]:
-```
-
-- Type `n` (or just press Enter) for **read-only**. Claude can read and search but never send anything.
-- Type `y` to allow sending. Every message, new chat and file will then pop up a **Yes/No box on this laptop** first, showing who it's going to and what it says. Nothing is sent unless you click **Yes**. (Reactions don't show the box.)
-
-You can change this any time later (see [below](#changing-what-claude-is-allowed-to-do)).
-
-**i. Close the Firefox private window.** Just close it with the **X**. **Don't click "Sign out"**: signing out cancels the cookies gm-reader just saved, and you'd have to repeat this step.
-
-## 5. Connect gm-reader to Claude
-
-At the end of pairing, gm-reader asks:
-
-```
-Add gm-reader to Claude Desktop's settings now? [y/N]:
-```
-
-Type `y`. gm-reader adds itself to Claude Desktop's config file and keeps a backup of the old file.
-
-(If you said no, run `.\gm-reader.exe setup-claude` any time to do the same thing.)
-
-**Then fully restart Claude Desktop.** Closing the window isn't enough:
-
-1. Find Claude's icon in the **system tray**, at the bottom right of the screen near the clock. You may need to click the **^** arrow to see hidden icons.
-2. Right-click the Claude icon and choose **Quit**.
-3. Open Claude Desktop again from the Start menu.
-
-**Using Claude Code too?** Run this once in PowerShell (it's also printed by `setup-claude`):
-
-```powershell
-claude mcp add --transport stdio --scope user gm-reader -- "C:\Tools\gm-reader\gm-reader.exe" serve
-```
-
-### Adding it by hand (only if the automatic step failed)
-
-1. Press **Windows + R**, type `notepad %APPDATA%\Claude\claude_desktop_config.json`, and press **Enter**. If Notepad asks to create the file, click **Yes**.
-2. If the file is empty, paste this. If it already has an `"mcpServers"` section, add only the `"gm-reader"` part inside it.
-
-   ```json
-   {
-     "mcpServers": {
-       "gm-reader": {
-         "command": "C:\\Tools\\gm-reader\\gm-reader.exe",
-         "args": ["serve"]
-       }
-     }
-   }
+   ```
+   Let Claude send messages, react, start chats and send files? [y/N]:
    ```
 
-   Note the **double backslashes** (`\\`) in the path. JSON needs them.
-3. Save (**Ctrl + S**), close Notepad, and fully restart Claude as described above.
+   - Type `n` (or just press Enter) for **read-only**. Claude can read and search but never send anything.
+   - Type `y` to allow sending. Every message, new chat and file then pops up a **Yes/No box on this laptop** first, showing who it's going to and what it says. Nothing is sent unless you click **Yes**. (Reactions don't show the box.)
 
-## 6. Try it
+   You can change this any time (see [below](#changing-what-claude-is-allowed-to-do)).
+
+**How the sign-in works:** the Firefox window uses a temporary Firefox profile that gm-reader creates in its own folder, so it doesn't touch your normal Firefox, its saved passwords or other accounts. gm-reader reads only the Google sign-in cookies that Messages for Web uses from that temporary profile, saves them encrypted with the pairing, and deletes the temporary profile. It never reads your own Firefox profile.
+
+### Step 3: Connect to Claude
+
+gm-reader adds itself to Claude Desktop's settings and keeps a backup of the old settings file. If Claude is open, it offers to **close and reopen Claude** so Claude loads gm-reader. Anything Claude is doing at that moment stops, so finish or wait first. (If you installed Claude from the Microsoft Store, open it again from the Start menu afterwards.)
+
+If you say no, fully quit Claude yourself before using gm-reader. Closing the window isn't enough: find Claude's icon in the **system tray** near the clock (click **^** to see hidden icons), right-click it, choose **Quit**, and open Claude again.
+
+**Using Claude Code too?** The setup prints a `claude mcp add ...` command at the end. Run it once in PowerShell.
+
+## 3. Try it
 
 In a new Claude chat, ask:
 
-> list my group chats
+> list my recent text conversations
 
 The first time Claude uses a gm-reader tool, Claude asks for permission:
 
@@ -162,18 +77,25 @@ More things to try:
 
 The first sync after pairing takes a minute or two while gm-reader downloads recent messages from your 50 most recent chats.
 
+## Updating
+
+Download the new **gm-reader.exe** from the releases page and double-click it, as in step 1. It updates the installed copy (even while Claude is using the old one), keeps your pairing and settings (press **Enter** when it says the computer is already linked), and offers to restart Claude.
+
 ## Keeping it working
 
 - **Keep your phone on and online.** gm-reader reads through your phone, the same way messages.google.com does.
 - **Open Claude at least once a week.** Google drops the pairing after about 14 days without contact. Ask "check gm-reader status" now and then; it warns when 4 or fewer days are left.
 - **Don't open messages.google.com in a browser while you use gm-reader.** Google allows one active web session, so the browser would take over. If that happens, close the browser tab and restart Claude.
-- **If Claude says the Google cookies stopped working**, run this in PowerShell from `C:\Tools\gm-reader` and repeat step 4a–4f (no emoji needed this time):
+- **If Claude says the Google sign-in stopped working**, double-click gm-reader.exe and type `s` when it says the computer is already linked. You sign in again; no emoji this time.
+- **If Google removed the pairing**, double-click gm-reader.exe and type `p` to link your phone again.
 
-  ```powershell
-  .\gm-reader.exe pair --refresh-cookies
-  ```
+## Running gm-reader commands
 
-- **If Google removed the pairing**, run `.\gm-reader.exe pair` again.
+The commands below are typed in PowerShell, in the folder gm-reader is installed in:
+
+1. Open **File Explorer** (the folder icon on the taskbar).
+2. Click the address bar at the top, type `%LOCALAPPDATA%\Programs\gm-reader` (or `C:\Tools\gm-reader` if you set it up there), and press **Enter**.
+3. Click the address bar again, type `powershell`, and press **Enter**. A PowerShell window opens in that folder.
 
 To see the status without Claude:
 
@@ -198,25 +120,71 @@ Turn actions on or off. The actions are `send`, `react`, `attachments` and `new-
 
 Turning something **on** pops up a Yes/No box you have to approve, so no other program can quietly turn sending on. Turning things **off** needs no approval. **Restart Claude afterwards** for the change to take effect.
 
+## Optional: automation
+
+gm-reader can also sign and send short replies without the Yes/No box, and ping a URL when new texts arrive, for building an assistant. Both are off by default; the README's [Building an assistant](README.md#building-an-assistant) section explains the limits. To see the commands:
+
+```powershell
+.\gm-reader.exe automation
+```
+
+## If the automatic sign-in doesn't work
+
+When the sign-in doesn't finish, the setup offers to try again or to copy the sign-in by hand (type `m`). You can also start that way with `.\gm-reader.exe setup --manual`. gm-reader opens a Firefox private window at the sign-in page. Then:
+
+1. Sign in with the Google account your phone's Google Messages uses (only that one). You land on a page full of code-like text.
+2. Press **F12** and click the **Network** tab.
+3. Press **F5**. Near the top of the list is a row whose **File** column says `config`.
+4. Right-click the `config` row, hover over **Copy Value**, and click **Copy as cURL (POSIX)**.
+
+gm-reader notices the copy by itself and continues. If what you copied isn't right, it says why. Close the private window when gm-reader is done, without clicking "Sign out".
+
+> Going straight to `messages.google.com/web/config` without signing in through the setup's link doesn't work: that page loads even when you're signed out, and then there are no cookies to copy.
+
+## Connect Claude by hand
+
+Only needed if step 3 couldn't update Claude's settings.
+
+1. In Claude Desktop, open **Settings → Developer → Edit Config** and open `claude_desktop_config.json` in Notepad. (Or press **Windows + R**, type `notepad %APPDATA%\Claude\claude_desktop_config.json`, and press **Enter**; if Notepad asks to create the file, click **Yes**.)
+2. If the file is empty, paste this, replacing `YOUR-NAME` with your Windows user name. If it already has an `"mcpServers"` section, add only the `"gm-reader"` part inside it.
+
+   ```json
+   {
+     "mcpServers": {
+       "gm-reader": {
+         "command": "C:\\Users\\YOUR-NAME\\AppData\\Local\\Programs\\gm-reader\\gm-reader.exe",
+         "args": ["serve"]
+       }
+     }
+   }
+   ```
+
+   Note the **double backslashes** (`\\`) in the path. JSON needs them.
+3. Save (**Ctrl + S**), close Notepad, and fully quit and reopen Claude.
+
 ## Unpairing and uninstalling
 
 1. **On your phone:** open Google Messages → tap your profile picture → **Device pairing** → remove the device listed for gm-reader.
-2. **Delete gm-reader's data:** in PowerShell in `C:\Tools\gm-reader`, run:
+2. **Delete gm-reader's data:** in PowerShell in gm-reader's folder (see [Running gm-reader commands](#running-gm-reader-commands)), run:
 
    ```powershell
    .\gm-reader.exe forget
    ```
 
-   Type `yes` when asked. This deletes the pairing, the message cache and the logs. (Or delete the folder `%LOCALAPPDATA%\gm-reader` yourself.)
-3. **Remove it from Claude:** open `%APPDATA%\Claude\claude_desktop_config.json` in Notepad as in step 5, delete the `"gm-reader"` entry, save, and restart Claude. For Claude Code, run `claude mcp remove gm-reader`.
-4. **Delete the program:** delete the folder `C:\Tools\gm-reader`.
+   Type `yes` when asked. This deletes the pairing, the message cache, the logs and any leftover sign-in folder. (Or delete the folder `%LOCALAPPDATA%\gm-reader` yourself.)
+3. **Remove it from Claude:** open Claude's config file as in [Connect Claude by hand](#connect-claude-by-hand), delete the `"gm-reader"` entry, save, and restart Claude. For Claude Code, run `claude mcp remove gm-reader`.
+4. **Delete the program:** delete the folder `%LOCALAPPDATA%\Programs\gm-reader` (or `C:\Tools\gm-reader`).
 
 ## Troubleshooting
 
 | What you see | What to do |
 | --- | --- |
-| Claude doesn't mention gm-reader or its tools | Fully quit Claude from the system tray and reopen it. Check the path in the config file matches where `gm-reader.exe` is. |
-| "Google did not accept the cookies" | Redo step 4 in a fresh Firefox private window, signed in to the right account only. |
+| Double-clicking does nothing, or the window closes at once | Right-click gm-reader.exe → **Properties**; if there's an **Unblock** box at the bottom, tick it and click **OK**, then try again. |
+| Your antivirus warns about gm-reader | Some antivirus programs flag any program that reads browser cookies. gm-reader only reads the temporary Firefox profile it created for the sign-in; its source code is public. You can use the [manual sign-in](#if-the-automatic-sign-in-doesnt-work) instead. |
+| Firefox opened, you signed in, but gm-reader keeps waiting | Make sure you reached the page of code-like text. If Firefox is set to always use private browsing, the sign-in can't be picked up: type `m` to do it by hand. |
+| Claude doesn't mention gm-reader or its tools | Fully quit Claude from the system tray and reopen it. Run the setup again to check Claude's settings. |
+| "No Google sign-in cookies were found" | The window wasn't signed in. Sign in through the setup's window, not messages.google.com directly. |
+| "Google did not accept the cookies" | Run the setup again and sign in to the right account only. |
 | "No phone found" / "your phone isn't ready" | Open Google Messages on the phone, make sure it's the default SMS app and online, and try again. |
 | Nothing appears on the phone to tap | Open Google Messages on the phone; the prompt may be inside the app. Check the phone and laptop use the same Google account. |
 | Answers say "local cache (phone not reachable)" | The phone is off or offline, or messages.google.com is open somewhere. Ask Claude to check gm-reader's status. |

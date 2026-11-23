@@ -9,7 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+
+	"github.com/rs/zerolog"
 )
+
+func nopLog() zerolog.Logger { return zerolog.Nop() }
 
 // version is set at build time with -ldflags "-X main.version=v1.2.3".
 var version = "dev"
@@ -17,11 +21,13 @@ var version = "dev"
 const usage = `gm-reader %s: Google Messages for Claude
 
 Usage:
+  gm-reader setup                   Set up or update gm-reader (same as double-clicking it)
   gm-reader pair                    Pair with your phone (one time)
-  gm-reader pair --refresh-cookies  Give new Google cookies without re-pairing
+  gm-reader pair --refresh-cookies  Sign in to Google again without re-pairing
   gm-reader setup-claude            Add gm-reader to Claude Desktop (and show the Claude Code command)
   gm-reader serve                   Run the MCP server (Claude starts this for you)
   gm-reader settings                Show or change what Claude is allowed to do
+  gm-reader automation              Labeled replies and the new-text hook (for building an assistant)
   gm-reader status                  Show pairing and cache status (no network)
   gm-reader forget                  Delete the pairing and cache from this computer
   gm-reader version                 Print the version
@@ -30,15 +36,31 @@ Run "gm-reader <command> -h" for options.
 `
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Printf(usage, version)
-		os.Exit(2)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if len(os.Args) < 2 {
+		// Double-clicked: run the guided setup and keep the window open at
+		// the end. If a program (not a person) started gm-reader without a
+		// command, show the usage instead of waiting for answers.
+		if !stdinIsTerminal() {
+			fmt.Fprintf(os.Stderr, usage, version)
+			os.Exit(2)
+		}
+		err := runSetup(ctx, nil)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "\nSetup stopped:", err)
+		}
+		ask("\nPress Enter to close this window.")
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	cmd, args := os.Args[1], os.Args[2:]
 	var err error
 	switch cmd {
+	case "setup":
+		err = runSetup(ctx, args)
 	case "pair":
 		err = runPair(ctx, args)
 	case "serve":
@@ -47,6 +69,8 @@ func main() {
 		err = runSetupClaude(args)
 	case "settings":
 		err = runSettings(ctx, args)
+	case "automation":
+		err = runAutomation(ctx, args)
 	case "status":
 		err = runStatus(args)
 	case "forget":
