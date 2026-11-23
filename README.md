@@ -90,7 +90,7 @@ go test ./...
 $env:CGO_ENABLED="0"; go build -trimpath -o gm-reader.exe ./cmd/gm-reader
 ```
 
-CI (`.github/workflows/ci.yml`) runs vet, all tests and the guard, the grep, and a smoke test on Linux and Windows. The smoke test starts `serve`, speaks MCP to it, and checks with `netstat` that it has no open ports. Tagging `v*` publishes `gm-reader.exe` and its SHA-256 checksum to GitHub Releases.
+CI (`.github/workflows/ci.yml`) runs vet, all tests and the guard, the grep, and a smoke test on Linux and Windows. The smoke test starts `serve`, speaks MCP to it, and checks with `netstat` that it has no open ports. Publishing a GitHub release (for example `v0.1.0`) makes CI build `gm-reader.exe` and attach it, with its SHA-256 checksum, to that release.
 
 Pinned dependency: `go.mau.fi/mautrix-gmessages v0.2611.0` (libgm). QR pairing was removed upstream in v26.05 because Google discontinued it, so gm-reader uses Google-account pairing (cookies plus an emoji confirmed on the phone).
 
