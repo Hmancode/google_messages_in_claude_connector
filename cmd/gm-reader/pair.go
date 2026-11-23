@@ -24,13 +24,14 @@ Get your Google sign-in cookies (about 2 minutes):
 
   1. Open Firefox and press Ctrl+Shift+P to open a private window.
      (Chrome often does not work for this; Firefox does.)
-  2. In that window, go to:  https://messages.google.com/web/config
-     Sign in with the Google account that your phone's Google Messages uses.
-     Sign in to only that one account.
+  2. Paste this address into that window and press Enter:
+       https://accounts.google.com/AccountChooser?continue=https://messages.google.com/web/config
+     Sign in with the Google account that your phone's Google Messages uses,
+     and only that one account. Afterwards you land on a page full of
+     code-like text. That is the right page. Don't go anywhere else in this window.
   3. Press F12 to open the developer tools, then click the "Network" tab.
   4. Press F5 to reload the page. In the list, click the row named "config".
-  5. Right-click that row, choose "Copy Value", then "Copy as cURL"
-     (either the Windows or the POSIX version is fine).
+  5. Right-click that row, choose "Copy Value", then "Copy as cURL (POSIX)".
   6. Come back to this window.
 
 Do NOT click "Sign out" in that window afterwards, because that cancels the
@@ -62,6 +63,7 @@ func readCookies(curlFile string) (map[string]string, error) {
 	}
 	cookies, err := curlcookies.Parse(text)
 	if err != nil {
+		fmt.Println("\nWhat was copied: " + curlcookies.Describe(text))
 		return nil, err
 	}
 	fmt.Printf("Found the cookies gm-reader needs (%s).\n", strings.Join(curlcookies.Names(cookies), ", "))
