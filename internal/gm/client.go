@@ -307,7 +307,9 @@ func (c *Client) Messages(ctx context.Context, convID string, limit int, before 
 	}
 	var cur *gmproto.Cursor
 	if before != nil {
-		cur = &gmproto.Cursor{LastItemID: before.MessageID, LastItemTimestamp: before.Time.UnixMicro()}
+		// The protocol's cursor timestamp is in milliseconds (message
+		// timestamps are in microseconds). See mautrix-gmessages backfill.go.
+		cur = &gmproto.Cursor{LastItemID: before.MessageID, LastItemTimestamp: before.Time.UnixMilli()}
 	}
 	resp, err := c.api.FetchMessages(ctx, convID, int64(limit), cur)
 	if err != nil {

@@ -61,6 +61,10 @@ func (p *fakePhone) Messages(_ context.Context, _ string, limit int, before *mod
 			}
 		}
 	}
+	// Like the real phone, return a couple fewer than asked for.
+	if limit > 3 {
+		limit -= 2
+	}
 	start := max(0, end-limit)
 	return append([]model.Message(nil), p.msgs[start:end]...), nil
 }

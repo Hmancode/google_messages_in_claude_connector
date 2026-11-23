@@ -262,15 +262,15 @@ func (s *Syncer) fetchPages(ctx context.Context, c client, convID string, want i
 		if len(msgs) == 0 {
 			break
 		}
-		got += len(msgs)
 		oldest := msgs[0]
-		if cursor != nil && oldest.ID == cursor.MessageID {
-			break // no progress
+		if cursor != nil && (oldest.ID == cursor.MessageID || !oldest.Time.Before(cursor.Time)) {
+			break // no progress: reached the start of the conversation
 		}
+		got += len(msgs)
 		cursor = &model.Cursor{MessageID: oldest.ID, Time: oldest.Time}
-		if len(msgs) < n {
-			break // reached the start of the conversation
-		}
+		// The phone often returns slightly fewer messages than asked for, so a
+		// short page does not mean the start of the conversation; only an
+		// empty page or no progress does.
 	}
 	return cursor, nil
 }
