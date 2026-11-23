@@ -31,13 +31,12 @@ jobs:
           go mod verify
           git diff --stat go.mod go.sum || true
 
-      - name: Upload go.mod and go.sum
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: go-mod-files
-          path: |
-            go.mod
-            go.sum
+      - name: Print go.mod and go.sum if they changed
+        run: |
+          if ! git diff --quiet -- go.mod go.sum 2>/dev/null || ! git ls-files --error-unmatch go.sum >/dev/null 2>&1; then
+            echo "===BEGIN go.mod==="; cat go.mod; echo "===END go.mod==="
+            echo "===BEGIN go.sum==="; cat go.sum; echo "===END go.sum==="
+          fi
 
       - name: Formatting
         run: test -z "$(gofmt -l .)" || (gofmt -l . && echo "::error::run gofmt -w ." && exit 1)
