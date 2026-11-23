@@ -24,12 +24,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.mod
 
-      - name: Resolve and verify modules
+      - name: Verify modules (go.mod/go.sum must be tidy and match the checksum database)
         run: |
-          if [ ! -f go.sum ]; then echo "::warning::go.sum is missing; generating it (download the go-mod-files artifact and commit it)"; fi
-          go mod tidy
+          go mod download
           go mod verify
-          git diff --stat go.mod go.sum || true
+          go mod tidy -diff
 
       - name: Print go.mod and go.sum if they changed
         run: |
@@ -71,8 +70,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.mod
 
-      - name: Resolve modules
-        run: go mod tidy
+      - name: Verify modules
+        run: |
+          go mod download
+          go mod verify
 
       - name: Test (DPAPI round trip runs for real here)
         run: go test ./...
@@ -100,7 +101,7 @@ jobs:
 
       - name: Build release binary
         run: |
-          go mod tidy
+          go mod verify
           GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" -o dist/gm-reader.exe ./cmd/gm-reader
           cd dist && sha256sum gm-reader.exe > gm-reader.exe.sha256
 
