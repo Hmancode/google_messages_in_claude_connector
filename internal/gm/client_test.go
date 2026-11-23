@@ -104,3 +104,17 @@ func TestConversationConversion(t *testing.T) {
 		t.Fatalf("bad participants: %+v", conv.Participants)
 	}
 }
+
+func TestSuccessfulRequestCountsAsPhoneContact(t *testing.T) {
+	f := newFake()
+	c := newWithAPI(f, zerolog.Nop(), nopEvents{})
+	if c.Status().PhoneResponding || !c.Status().LastData.IsZero() {
+		t.Fatal("expected no contact before any request")
+	}
+	if _, err := c.Conversations(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if st := c.Status(); !st.PhoneResponding || st.LastData.IsZero() {
+		t.Fatalf("a successful live request should mark the phone as responding: %+v", st)
+	}
+}

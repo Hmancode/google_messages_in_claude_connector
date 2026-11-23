@@ -130,7 +130,7 @@ claude mcp add --transport stdio --scope user gm-reader -- "C:\Tools\gm-reader\g
 
 ### Adding it by hand (only if the automatic step failed)
 
-1. Press **Windows + R**, type `notepad %APPDATA%\Claude\claude_desktop_config.json`, and press **Enter**. If Notepad asks to create the file, click **Yes**.
+1. In Claude Desktop, open **Settings → Developer → Edit Config** and open `claude_desktop_config.json` in Notepad. (Or press **Windows + R**, type `notepad %APPDATA%\Claude\claude_desktop_config.json`, and press **Enter**; if Notepad asks to create the file, click **Yes**.)
 2. If the file is empty, paste this. If it already has an `"mcpServers"` section, add only the `"gm-reader"` part inside it.
 
    ```json
