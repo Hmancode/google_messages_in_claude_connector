@@ -105,7 +105,7 @@ func TestLabeledReplyOffByDefault(t *testing.T) {
 
 func TestLabeledReplyToContactIsSignedAndSkipsDialog(t *testing.T) {
 	f, s, w, l := labeledSetup(t)
-	if _, err := w.SendLabeledReply(context.Background(), "d1", "Henry's busy until 4:30, free after. On 11/24 he's free all day."); err != nil {
+	if _, err := w.SendLabeledReply(context.Background(), "d1", "Sam's busy until 4:30, free after. On 11/24 he's free all day."); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.seen) != 0 {
@@ -133,7 +133,7 @@ func TestLabeledReplyWhoLimits(t *testing.T) {
 		t.Fatal("nothing may be sent")
 	}
 	f2, _, w2, _ := labeledSetup(t, "c1")
-	if _, err := w2.SendLabeledReply(ctx, "c1", "Henry's in a meeting until noon."); err != nil {
+	if _, err := w2.SendLabeledReply(ctx, "c1", "Sam's in a meeting until noon."); err != nil {
 		t.Fatalf("allowed group should work: %v", err)
 	}
 	if countCalls(f2, "SendMessage") != 1 {
@@ -144,7 +144,7 @@ func TestLabeledReplyWhoLimits(t *testing.T) {
 func TestLabeledReplyGroupsWithContacts(t *testing.T) {
 	ctx := context.Background()
 	f, _, w, _ := labeledSetupCfg(t, LabeledConfig{Signature: "— Sam's assistant", MaxChars: 280, PerChatHour: 2, DailyMax: 5, Window: 2 * time.Hour, GroupsWithContacts: true})
-	if _, err := w.SendLabeledReply(ctx, "g8", "Henry's in class until 2."); err != nil {
+	if _, err := w.SendLabeledReply(ctx, "g8", "Sam's in class until 2."); err != nil {
 		t.Fatalf("group with a saved contact should work: %v", err)
 	}
 	if _, err := w.SendLabeledReply(ctx, "g9", "hi"); err == nil || !strings.Contains(err.Error(), "no one saved") {
@@ -180,7 +180,7 @@ func TestLabeledReplyContentLimits(t *testing.T) {
 		"link":       "see https://example.com",
 		"bare link":  "check example.com for it",
 		"www":        "go to www.thing.org",
-		"email":      "email henry@example.edu",
+		"email":      "email sam@example.edu",
 		"code":       "the code is 482913",
 		"split code": "code 482 913",
 		"phone":      "call 315-680-9885",
