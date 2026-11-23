@@ -155,7 +155,9 @@ func (c *Client) handle(raw any) {
 	case *libgm.WrappedMessage:
 		c.touch()
 		if evt.Message != nil {
-			c.ev.Message(c.convertMessage(evt.Message))
+			m := c.convertMessage(evt.Message)
+			m.Live = !evt.IsOld
+			c.ev.Message(m)
 		}
 	case *gmproto.Conversation:
 		c.touch()

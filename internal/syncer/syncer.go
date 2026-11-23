@@ -15,6 +15,7 @@ import (
 
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/confirm"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/gm"
+	"github.com/Hmancode/google_messages_in_claude_connector/internal/hook"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/model"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/secure"
 	"github.com/Hmancode/google_messages_in_claude_connector/internal/session"
@@ -81,6 +82,8 @@ type Syncer struct {
 	status       gm.Status
 	contacts     []model.Contact
 	contactsAt   time.Time
+	hook         *hook.Dispatcher
+	replyLog     map[string][]time.Time
 
 	syncing atomic.Bool
 	kick    chan struct{}
@@ -110,7 +113,8 @@ func (s *Syncer) Load() error {
 	s.paired = true
 	s.settings = f.Settings
 	s.pairedAt, s.lastContact, s.contactSaved = f.PairedAt, f.LastContact, f.LastContact
-	if f.Settings.AnyWrite() {
+	auto := f.Settings.Automation
+	if f.Settings.AnyWrite() || auto.Replies.Enabled {
 		s.writer = gm.NewWriter(c, gm.Policy{
 			AllowSend:        f.Settings.AllowSend,
 			AllowReact:       f.Settings.AllowReact,
@@ -118,7 +122,105 @@ func (s *Syncer) Load() error {
 			AllowNewChats:    f.Settings.AllowNewChats,
 		}, confirm.New(f.Settings.Mode()))
 	}
+	s.replyLog = f.ReplyLog
+	if s.replyLog == nil {
+		s.replyLog = map[string][]time.Time{}
+	}
+	if auto.Replies.Enabled && strings.TrimSpace(auto.Replies.Signature) != "" {
+		lim := auto.Replies.Limits()
+		groups := map[string]bool{}
+		for _, g := range auto.Groups {
+			groups[g] = true
+		}
+		s.writer.EnableLabeledReplies(gm.LabeledConfig{
+			Signature: lim.Signature,
+			MaxChars:  lim.MaxChars,
+			Gap:       time.Duration(lim.GapMinutes) * time.Minute,
+			DailyMax:  lim.DailyMax,
+			Window:    time.Duration(lim.WindowMinutes) * time.Minute,
+			Groups:    groups,
+		}, s)
+	}
+	if auto.Hook.Enabled && hook.Validate(auto.Hook.URL) == nil {
+		s.hook = hook.New(hook.Config{
+			URL:   auto.Hook.URL,
+			Token: auto.Hook.Token,
+			Batch: time.Duration(auto.Hook.BatchSeconds) * time.Second,
+		}, s.log)
+	}
 	return nil
+}
+
+// --- gm.ReplyLedger, backed by the encrypted session file ---
+
+// LastReply returns when the last labeled reply went to a conversation.
+func (s *Syncer) LastReply(conversationID string) time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ts := s.replyLog[conversationID]
+	if len(ts) == 0 {
+		return time.Time{}
+	}
+	return ts[len(ts)-1]
+}
+
+// CountSince counts labeled replies sent after t.
+func (s *Syncer) CountSince(t time.Time) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, ts := range s.replyLog {
+		for _, x := range ts {
+			if x.After(t) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// Record stores a labeled reply and drops entries older than a day.
+func (s *Syncer) Record(conversationID string, t time.Time) error {
+	s.mu.Lock()
+	s.replyLog[conversationID] = append(s.replyLog[conversationID], t)
+	cutoff := t.Add(-24 * time.Hour)
+	trimmed := map[string][]time.Time{}
+	for id, ts := range s.replyLog {
+		for _, x := range ts {
+			if x.After(cutoff) {
+				trimmed[id] = append(trimmed[id], x)
+			}
+		}
+	}
+	s.replyLog = trimmed
+	snapshot := map[string][]time.Time{}
+	for id, ts := range trimmed {
+		snapshot[id] = append([]time.Time(nil), ts...)
+	}
+	s.mu.Unlock()
+	return s.sess.Update(func(f *session.File) error { f.ReplyLog = snapshot; return nil })
+}
+
+// automationAllows reports whether new texts in a conversation should trigger
+// the hook: one-on-one chats with a saved contact, or allowed group chats.
+func (s *Syncer) automationAllows(conversationID string) bool {
+	s.mu.RLock()
+	auto := s.settings.Automation
+	s.mu.RUnlock()
+	conv, ok, err := s.db.Conversation(conversationID)
+	if err != nil || !ok {
+		return false
+	}
+	if conv.IsGroup {
+		return auto.AllowsGroup(conversationID)
+	}
+	var others []model.Participant
+	for _, p := range conv.Participants {
+		if !p.IsMe {
+			others = append(others, p)
+		}
+	}
+	return len(others) == 1 && others[0].IsContact
 }
 
 // Settings returns the loaded settings.
@@ -284,10 +386,20 @@ func (s *Syncer) Conversation(c model.Conversation) {
 	}
 }
 
-// Message stores an incoming message.
+// Message stores an incoming message and, for a new text from an allowed
+// sender, notifies the hook.
 func (s *Syncer) Message(m model.Message) {
 	if err := s.db.UpsertMessages([]model.Message{m}); err != nil {
 		s.log.Warn().Err(err).Msg("Cache write failed")
+	}
+	s.mu.RLock()
+	h := s.hook
+	s.mu.RUnlock()
+	if h == nil || !m.Live || m.FromMe || m.System || time.Since(m.Time) > 10*time.Minute {
+		return
+	}
+	if s.automationAllows(m.ConversationID) {
+		h.Notify(m.ConversationID)
 	}
 }
 
@@ -482,21 +594,41 @@ func onlyDigits(s string) string {
 
 // Report is what pairing_status returns.
 type Report struct {
-	Paired              bool       `json:"paired"`
-	Connected           bool       `json:"connected"`
-	PhoneResponding     bool       `json:"phone_responding"`
-	ActiveElsewhere     bool       `json:"messages_for_web_open_elsewhere"`
-	PairedAt            *time.Time `json:"paired_at,omitempty"`
-	LastContact         *time.Time `json:"last_contact_with_phone,omitempty"`
-	LastSync            *time.Time `json:"last_sync,omitempty"`
-	DaysUntilRepair     *int       `json:"days_until_repair_needed,omitempty"`
-	CachedConversations int        `json:"cached_conversations"`
-	CachedMessages      int        `json:"cached_messages"`
-	CacheMode           string     `json:"cache_mode"`
-	SessionEncrypted    bool       `json:"session_file_encrypted"`
-	WriteActions        []string   `json:"write_actions_enabled"`
-	ConfirmMode         string     `json:"confirmation_mode"`
-	Warnings            []string   `json:"warnings"`
+	Paired              bool           `json:"paired"`
+	Connected           bool           `json:"connected"`
+	PhoneResponding     bool           `json:"phone_responding"`
+	ActiveElsewhere     bool           `json:"messages_for_web_open_elsewhere"`
+	PairedAt            *time.Time     `json:"paired_at,omitempty"`
+	LastContact         *time.Time     `json:"last_contact_with_phone,omitempty"`
+	LastSync            *time.Time     `json:"last_sync,omitempty"`
+	DaysUntilRepair     *int           `json:"days_until_repair_needed,omitempty"`
+	CachedConversations int            `json:"cached_conversations"`
+	CachedMessages      int            `json:"cached_messages"`
+	CacheMode           string         `json:"cache_mode"`
+	SessionEncrypted    bool           `json:"session_file_encrypted"`
+	WriteActions        []string       `json:"write_actions_enabled"`
+	ConfirmMode         string         `json:"confirmation_mode"`
+	LabeledReplies      *LabeledStatus `json:"labeled_replies,omitempty"`
+	NewTextHook         *HookStatus    `json:"new_text_hook,omitempty"`
+	Warnings            []string       `json:"warnings"`
+}
+
+// LabeledStatus describes labeled replies in pairing_status.
+type LabeledStatus struct {
+	Signature     string   `json:"signature"`
+	MaxChars      int      `json:"max_chars"`
+	GapMinutes    int      `json:"min_minutes_between_replies_per_chat"`
+	DailyMax      int      `json:"daily_max"`
+	WindowMinutes int      `json:"only_answers_messages_newer_than_minutes"`
+	SentLast24h   int      `json:"sent_last_24h"`
+	AllowedGroups []string `json:"allowed_group_conversation_ids"`
+}
+
+// HookStatus describes the new-text hook in pairing_status.
+type HookStatus struct {
+	Host         string `json:"host"`
+	RequestsSent int    `json:"requests_sent_since_start"`
+	LastError    string `json:"last_error,omitempty"`
 }
 
 // StatusReport summarizes pairing and sync health.
@@ -539,6 +671,26 @@ func (s *Syncer) StatusReport() Report {
 		if a.on {
 			r.WriteActions = append(r.WriteActions, a.name)
 		}
+	}
+
+	if w := s.Writer(); w.LabeledReplies() != nil {
+		lim := settings.Automation.Replies.Limits()
+		groups := settings.Automation.Groups
+		if groups == nil {
+			groups = []string{}
+		}
+		r.LabeledReplies = &LabeledStatus{
+			Signature: lim.Signature, MaxChars: lim.MaxChars, GapMinutes: lim.GapMinutes,
+			DailyMax: lim.DailyMax, WindowMinutes: lim.WindowMinutes,
+			SentLast24h: s.CountSince(time.Now().Add(-24 * time.Hour)), AllowedGroups: groups,
+		}
+	}
+	s.mu.RLock()
+	h := s.hook
+	s.mu.RUnlock()
+	if h != nil {
+		sent, lastErr := h.Stats()
+		r.NewTextHook = &HookStatus{Host: hook.Host(settings.Automation.Hook.URL), RequestsSent: sent, LastError: lastErr}
 	}
 
 	if !r.Paired {

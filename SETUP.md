@@ -202,6 +202,14 @@ Turn actions on or off. The actions are `send`, `react`, `attachments` and `new-
 
 Turning something **on** pops up a Yes/No box you have to approve, so no other program can quietly turn sending on. Turning things **off** needs no approval. **Restart Claude afterwards** for the change to take effect.
 
+## Optional: automation
+
+gm-reader can also sign and send short replies without the Yes/No box, and ping a URL when new texts arrive, for building an assistant. Both are off by default; the README's [Building an assistant](README.md#building-an-assistant) section explains the limits. To see the commands:
+
+```powershell
+.\gm-reader.exe automation
+```
+
 ## Unpairing and uninstalling
 
 1. **On your phone:** open Google Messages → tap your profile picture → **Device pairing** → remove the device listed for gm-reader.

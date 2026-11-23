@@ -9,7 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+
+	"github.com/rs/zerolog"
 )
+
+func nopLog() zerolog.Logger { return zerolog.Nop() }
 
 // version is set at build time with -ldflags "-X main.version=v1.2.3".
 var version = "dev"
@@ -22,6 +26,7 @@ Usage:
   gm-reader setup-claude            Add gm-reader to Claude Desktop (and show the Claude Code command)
   gm-reader serve                   Run the MCP server (Claude starts this for you)
   gm-reader settings                Show or change what Claude is allowed to do
+  gm-reader automation              Labeled replies and the new-text hook (for building an assistant)
   gm-reader status                  Show pairing and cache status (no network)
   gm-reader forget                  Delete the pairing and cache from this computer
   gm-reader version                 Print the version
@@ -47,6 +52,8 @@ func main() {
 		err = runSetupClaude(args)
 	case "settings":
 		err = runSettings(ctx, args)
+	case "automation":
+		err = runAutomation(ctx, args)
 	case "status":
 		err = runStatus(args)
 	case "forget":
