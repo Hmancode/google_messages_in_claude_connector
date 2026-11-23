@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm"
@@ -102,5 +103,32 @@ func TestConversationConversion(t *testing.T) {
 	}
 	if conv.Participants[0].Name != "Me" || conv.Participants[1].Phone != "+15550001111" {
 		t.Fatalf("bad participants: %+v", conv.Participants)
+	}
+}
+
+func TestSuccessfulRequestCountsAsPhoneContact(t *testing.T) {
+	f := newFake()
+	c := newWithAPI(f, zerolog.Nop(), nopEvents{})
+	if c.Status().PhoneResponding || !c.Status().LastData.IsZero() {
+		t.Fatal("expected no contact before any request")
+	}
+	if _, err := c.Conversations(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if st := c.Status(); !st.PhoneResponding || st.LastData.IsZero() {
+		t.Fatalf("a successful live request should mark the phone as responding: %+v", st)
+	}
+}
+
+func TestOlderMessagesCursorUsesMilliseconds(t *testing.T) {
+	f := newFake()
+	c := newWithAPI(f, zerolog.Nop(), nopEvents{})
+	anchor := time.Date(2026, 11, 20, 5, 57, 49, 0, time.UTC)
+	if _, err := c.Messages(context.Background(), "c1", 50, &model.Cursor{MessageID: "189818", Time: anchor}); err != nil {
+		t.Fatal(err)
+	}
+	cur := f.cursors[len(f.cursors)-1]
+	if cur.GetLastItemID() != "189818" || cur.GetLastItemTimestamp() != anchor.UnixMilli() {
+		t.Fatalf("cursor must carry the message ID and a millisecond timestamp, got %+v (want ts %d)", cur, anchor.UnixMilli())
 	}
 }

@@ -7,6 +7,7 @@ package curlcookies
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -22,8 +23,30 @@ var Optional = []string{"__Secure-1PSIDTS"}
 type ErrMissing struct{ Names []string }
 
 func (e ErrMissing) Error() string {
+	if len(e.Names) == len(Required) {
+		return "no Google sign-in cookies were found. Usually the private window was not signed in: " +
+			"open the AccountChooser link from the instructions, sign in there, then copy the \"config\" request again"
+	}
 	return "these required cookies were not found: " + strings.Join(e.Names, ", ") +
-		". Make sure you copied the /web/config request, signed in to only one Google account, and used a private window."
+		". Make sure you signed in through the AccountChooser link, to only one Google account, in a private window, and copied the \"config\" request"
+}
+
+// Describe summarizes copied text for troubleshooting without revealing any
+// cookie values.
+func Describe(text string) string {
+	t := strings.TrimSpace(text)
+	lower := strings.ToLower(t)
+	switch {
+	case t == "":
+		return "nothing (the clipboard was empty)"
+	case !strings.HasPrefix(lower, "curl"):
+		return fmt.Sprintf("%d characters that don't look like a cURL command (it should start with \"curl\")", len(t))
+	case !strings.Contains(lower, "messages.google.com/web/config"):
+		return "a cURL command, but not for the messages.google.com/web/config request"
+	case !strings.Contains(lower, "cookie:") && !regexp.MustCompile(`(?i)\s(-b|--cookie)\s`).MatchString(t):
+		return "the right cURL command, but with no cookies in it (the window was probably not signed in)"
+	}
+	return "the right cURL command with cookies, but not all of the ones gm-reader needs"
 }
 
 var cmdEscape = regexp.MustCompile(`\^(.)`)

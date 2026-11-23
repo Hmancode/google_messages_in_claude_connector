@@ -16,6 +16,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -52,11 +55,16 @@ type Writer struct {
 	c       *Client
 	policy  Policy
 	confirm confirm.Confirmer
+
+	labeledMu sync.Mutex
+	labeled   *LabeledConfig
+	ledger    ReplyLedger
+	now       func() time.Time
 }
 
 // NewWriter returns a Writer bound to a client, policy and confirmer.
 func NewWriter(c *Client, p Policy, cf confirm.Confirmer) *Writer {
-	return &Writer{c: c, policy: p, confirm: cf}
+	return &Writer{c: c, policy: p, confirm: cf, now: time.Now}
 }
 
 // SendResult reports a sent message.
@@ -358,4 +366,183 @@ func (w *Writer) StartChat(ctx context.Context, numbers []string, groupName, fir
 		return m, nil, fmt.Errorf("chat was created but the first message failed: %w", err)
 	}
 	return m, &res, nil
+}
+
+// --- Labeled replies ---------------------------------------------------------
+//
+// A labeled reply is a short message sent WITHOUT the confirmation box, for
+// building an assistant that answers simple texts. Because no human approves
+// each one, every limit below is enforced here in code, not left to the model:
+//   - the configured signature is always appended, so recipients can tell;
+//   - only one-on-one chats with saved contacts, group chats on the allowed list,
+//     and (if turned on) group chats that include at least one saved contact;
+//   - only as an answer: the newest message must be theirs and recent;
+//   - short, with no links, email addresses or long numbers (blocks leaking
+//     verification codes, phone numbers or addresses);
+//   - at most a set number per chat in any hour, and a daily cap across all chats.
+
+// LabeledConfig is the policy for labeled replies.
+type LabeledConfig struct {
+	Signature          string
+	MaxChars           int
+	PerChatHour        int // labeled replies allowed per chat in any 60 minutes
+	DailyMax           int
+	Window             time.Duration
+	Groups             map[string]bool
+	GroupsWithContacts bool // also allow group chats that include a saved contact
+}
+
+// ReplyLedger remembers when labeled replies were sent, for the rate limits.
+type ReplyLedger interface {
+	ChatRepliesSince(conversationID string, t time.Time) []time.Time
+	CountSince(t time.Time) int
+	Record(conversationID string, t time.Time) error
+}
+
+// AutomationAllowed reports whether automation (labeled replies and the
+// new-text hook) may act in a conversation: a one-on-one chat with a saved
+// contact, a group chat on the allowed list, or, if groupsWithContacts is set,
+// a group chat that includes at least one saved contact. It returns nil when
+// allowed and an error saying why not otherwise.
+func AutomationAllowed(conv model.Conversation, groups map[string]bool, groupsWithContacts bool) error {
+	var others []model.Participant
+	contacts := 0
+	for _, p := range conv.Participants {
+		if p.IsMe {
+			continue
+		}
+		others = append(others, p)
+		if p.IsContact {
+			contacts++
+		}
+	}
+	if conv.IsGroup {
+		switch {
+		case groups[conv.ID]:
+			return nil
+		case groupsWithContacts && contacts > 0:
+			return nil
+		case groupsWithContacts:
+			return errors.New("this group chat has no one saved in the phone's contacts, so labeled replies aren't allowed")
+		default:
+			return errors.New("this group chat is not on the list of chats allowed for labeled replies")
+		}
+	}
+	if len(others) != 1 || contacts != 1 {
+		return errors.New("labeled replies only go to people saved in the phone's contacts")
+	}
+	return nil
+}
+
+// EnableLabeledReplies turns on labeled replies with the given policy.
+func (w *Writer) EnableLabeledReplies(cfg LabeledConfig, ledger ReplyLedger) {
+	w.labeled, w.ledger = &cfg, ledger
+}
+
+// LabeledReplies returns the active policy, or nil when labeled replies are off.
+func (w *Writer) LabeledReplies() *LabeledConfig {
+	if w == nil {
+		return nil
+	}
+	return w.labeled
+}
+
+var (
+	linkRe   = regexp.MustCompile(`(?i)(https?://|www\.|\b[a-z0-9-]+\.(com|net|org|edu|gov|io|co|me|ly|app|us|uk|ca|info|biz|xyz|link|gg|tv|dev|ai|site|online|shop)\b)`)
+	emailRe  = regexp.MustCompile(`[^\s@]+@[^\s@]+\.[^\s@]+`)
+	digitsRe = regexp.MustCompile(`\d(?:[\s\-.]?\d){4,}`)
+)
+
+// CheckLabeledText enforces the content limits for a labeled reply.
+func CheckLabeledText(text string, maxChars int) error {
+	if strings.TrimSpace(text) == "" {
+		return errors.New("text is empty")
+	}
+	if n := utf8.RuneCountInString(text); n > maxChars {
+		return fmt.Errorf("labeled replies are limited to %d characters (this is %d)", maxChars, n)
+	}
+	for _, r := range text {
+		if (unicode.IsControl(r) && r != '\n') || isBidi(r) {
+			return errors.New("labeled replies can't contain control or hidden characters")
+		}
+	}
+	switch {
+	case linkRe.MatchString(text):
+		return errors.New("labeled replies can't contain links or web addresses")
+	case emailRe.MatchString(text):
+		return errors.New("labeled replies can't contain email addresses")
+	case digitsRe.MatchString(text):
+		return errors.New("labeled replies can't contain long numbers (5 or more digits), such as codes or phone numbers")
+	}
+	return nil
+}
+
+func isBidi(r rune) bool {
+	return (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) || r == 0x200E || r == 0x200F || r == 0x061C
+}
+
+// SendLabeledReply sends a short reply labeled with the configured signature,
+// without the confirmation box, if every limit allows it.
+func (w *Writer) SendLabeledReply(ctx context.Context, convID, text string) (SendResult, error) {
+	if w.labeled == nil || w.ledger == nil || strings.TrimSpace(w.labeled.Signature) == "" {
+		return SendResult{}, errors.New("labeled replies are turned off. The user can turn them on with `gm-reader replies on` on their computer and restarting Claude")
+	}
+	w.labeledMu.Lock()
+	defer w.labeledMu.Unlock()
+	cfg := *w.labeled
+	text = strings.TrimSpace(text)
+	if err := CheckLabeledText(text, cfg.MaxChars); err != nil {
+		return SendResult{}, err
+	}
+	conv, m, err := w.sendable(ctx, convID)
+	if err != nil {
+		return SendResult{}, err
+	}
+	if err := AutomationAllowed(m, cfg.Groups, cfg.GroupsWithContacts); err != nil {
+		return SendResult{}, err
+	}
+	msgs, err := w.c.Messages(ctx, convID, 5, nil)
+	if err != nil {
+		return SendResult{}, fmt.Errorf("could not check the latest message: %w", err)
+	}
+	var latest *model.Message
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if !msgs[i].System {
+			latest = &msgs[i]
+			break
+		}
+	}
+	now := w.now()
+	switch {
+	case latest == nil:
+		return SendResult{}, errors.New("there is no message to reply to in this chat")
+	case latest.FromMe:
+		return SendResult{}, errors.New("the newest message in this chat is already from the user; labeled replies only answer a new message")
+	case now.Sub(latest.Time) > cfg.Window:
+		return SendResult{}, fmt.Errorf("the newest message is older than %d minutes; labeled replies only answer recent messages", int(cfg.Window.Minutes()))
+	}
+	if recent := w.ledger.ChatRepliesSince(convID, now.Add(-time.Hour)); len(recent) >= cfg.PerChatHour {
+		oldest := recent[0]
+		for _, t := range recent {
+			if t.Before(oldest) {
+				oldest = t
+			}
+		}
+		wait := oldest.Add(time.Hour).Sub(now)
+		return SendResult{}, fmt.Errorf("%d labeled replies were already sent in this chat in the last hour; the next one is allowed in %d minutes", len(recent), int(wait.Minutes())+1)
+	}
+	if n := w.ledger.CountSince(now.Add(-24 * time.Hour)); n >= cfg.DailyMax {
+		return SendResult{}, fmt.Errorf("the daily limit of %d labeled replies has been reached", cfg.DailyMax)
+	}
+	body := text + "\n" + strings.TrimSpace(cfg.Signature)
+	res, err := w.send(ctx, conv, []*gmproto.MessageInfo{{
+		Data: &gmproto.MessageInfo_MessageContent{MessageContent: &gmproto.MessageContent{Content: body}},
+	}}, "")
+	if err != nil {
+		return res, err
+	}
+	if err := w.ledger.Record(convID, now); err != nil {
+		w.c.log.Warn().Err(err).Msg("Could not record labeled reply for rate limits")
+	}
+	return res, nil
 }

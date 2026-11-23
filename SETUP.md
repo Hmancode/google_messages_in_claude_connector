@@ -58,19 +58,23 @@ gm-reader prints instructions. Here they are in more detail.
 
 **a. Open a Firefox private window.** Open Firefox and press **Ctrl + Shift + P**. A purple-themed window opens; that's the private window.
 
-**b. Sign in.** In the private window's address bar, go to:
+**b. Sign in.** Copy this address, paste it into the private window's address bar, and press **Enter**:
 
 ```
-https://messages.google.com/web/config
+https://accounts.google.com/AccountChooser?continue=https://messages.google.com/web/config
 ```
 
-Sign in with the **same Google account your phone's Google Messages uses**. (To check on the phone: open Google Messages, tap your profile picture in the top right; the account is shown at the top.) Sign in to **only that one account** in this window. After signing in, you'll see a mostly blank page or some text. That's expected.
+Sign in with the **same Google account your phone's Google Messages uses**. (To check on the phone: open Google Messages, tap your profile picture in the top right; the account is shown at the top.) Sign in to **only that one account** in this window.
+
+After signing in, Google sends you to a page full of code-like text that starts with something like `["2026…`. That's the right page. **Don't go to any other page in this window.**
+
+> Going straight to `messages.google.com/web/config` without this link doesn't work: that page loads even when you're signed out, and then there are no cookies to copy.
 
 **c. Open the developer tools.** Press **F12**. A panel opens at the bottom or side of the window. Click the tab named **Network**.
 
 **d. Reload.** Press **F5**. A list of rows fills the Network panel. Near the top is a row whose **File** column says `config`.
 
-**e. Copy the request.** Right-click the `config` row, hover over **Copy Value**, and click **Copy as cURL (Windows)**. "Copy as cURL (POSIX)" works too.
+**e. Copy the request.** Right-click the `config` row, hover over **Copy Value**, and click **Copy as cURL (POSIX)**.
 
 **f. Go back to PowerShell** and press **Enter**. gm-reader reads what you copied straight from the clipboard, so you don't need to paste anything. It should say something like:
 
@@ -78,7 +82,7 @@ Sign in with the **same Google account your phone's Google Messages uses**. (To 
 Found the cookies gm-reader needs (APISID, HSID, OSID, SAPISID, SID, SSID, __Secure-1PSIDTS).
 ```
 
-If it says some cookies are missing, check you copied the `config` row (not another one), that you're signed in to only one account, and that you used a private window. Then run `.\gm-reader.exe pair` again.
+If it says cookies are missing, gm-reader also says what it found on the clipboard. Most often the window wasn't signed in: close it, open a new private window, and start again from step b using the sign-in link. Then run `.\gm-reader.exe pair` again.
 
 **g. Tap the emoji on your phone.** gm-reader shows an emoji, for example 🦊. Your phone should show a Google Messages notification or screen asking you to confirm a new device. Tap the **same emoji** there.
 
@@ -126,7 +130,7 @@ claude mcp add --transport stdio --scope user gm-reader -- "C:\Tools\gm-reader\g
 
 ### Adding it by hand (only if the automatic step failed)
 
-1. Press **Windows + R**, type `notepad %APPDATA%\Claude\claude_desktop_config.json`, and press **Enter**. If Notepad asks to create the file, click **Yes**.
+1. In Claude Desktop, open **Settings → Developer → Edit Config** and open `claude_desktop_config.json` in Notepad. (Or press **Windows + R**, type `notepad %APPDATA%\Claude\claude_desktop_config.json`, and press **Enter**; if Notepad asks to create the file, click **Yes**.)
 2. If the file is empty, paste this. If it already has an `"mcpServers"` section, add only the `"gm-reader"` part inside it.
 
    ```json
@@ -198,6 +202,14 @@ Turn actions on or off. The actions are `send`, `react`, `attachments` and `new-
 
 Turning something **on** pops up a Yes/No box you have to approve, so no other program can quietly turn sending on. Turning things **off** needs no approval. **Restart Claude afterwards** for the change to take effect.
 
+## Optional: automation
+
+gm-reader can also sign and send short replies without the Yes/No box, and ping a URL when new texts arrive, for building an assistant. Both are off by default; the README's [Building an assistant](README.md#building-an-assistant) section explains the limits. To see the commands:
+
+```powershell
+.\gm-reader.exe automation
+```
+
 ## Unpairing and uninstalling
 
 1. **On your phone:** open Google Messages → tap your profile picture → **Device pairing** → remove the device listed for gm-reader.
@@ -216,6 +228,7 @@ Turning something **on** pops up a Yes/No box you have to approve, so no other p
 | What you see | What to do |
 | --- | --- |
 | Claude doesn't mention gm-reader or its tools | Fully quit Claude from the system tray and reopen it. Check the path in the config file matches where `gm-reader.exe` is. |
+| "No Google sign-in cookies were found" | The private window wasn't signed in. Use the sign-in link in step 4b, not messages.google.com directly. |
 | "Google did not accept the cookies" | Redo step 4 in a fresh Firefox private window, signed in to the right account only. |
 | "No phone found" / "your phone isn't ready" | Open Google Messages on the phone, make sure it's the default SMS app and online, and try again. |
 | Nothing appears on the phone to tap | Open Google Messages on the phone; the prompt may be inside the app. Check the phone and laptop use the same Google account. |

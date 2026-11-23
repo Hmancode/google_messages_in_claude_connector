@@ -10,6 +10,8 @@ type Participant struct {
 	Name  string `json:"name"`
 	Phone string `json:"phone,omitempty"`
 	IsMe  bool   `json:"is_me,omitempty"`
+	// IsContact is true when this person is saved in the phone's contacts.
+	IsContact bool `json:"is_contact,omitempty"`
 }
 
 // Conversation is a chat thread (one-to-one or group).
@@ -52,6 +54,9 @@ type Message struct {
 	ReplyToID      string       `json:"reply_to_message_id,omitempty"`
 	Status         string       `json:"status,omitempty"`
 	System         bool         `json:"system,omitempty"`
+	// Live is true for a message that just arrived (not history replayed on
+	// reconnect). Never serialized.
+	Live bool `json:"-"`
 }
 
 // Contact is an entry from the phone's contact list.

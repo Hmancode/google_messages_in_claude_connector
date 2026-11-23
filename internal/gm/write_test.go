@@ -25,6 +25,7 @@ type fakeAPI struct {
 	created   []*gmproto.GetOrCreateConversationRequest
 	convs     map[string]*gmproto.Conversation
 	messages  []*gmproto.Message
+	cursors   []*gmproto.Cursor
 }
 
 func newFake() *fakeAPI {
@@ -70,8 +71,9 @@ func (f *fakeAPI) GetConversation(_ context.Context, id string) (*gmproto.Conver
 	}
 	return &gmproto.Conversation{}, nil
 }
-func (f *fakeAPI) FetchMessages(context.Context, string, int64, *gmproto.Cursor) (*gmproto.ListMessagesResponse, error) {
+func (f *fakeAPI) FetchMessages(_ context.Context, _ string, _ int64, cur *gmproto.Cursor) (*gmproto.ListMessagesResponse, error) {
 	f.rec("FetchMessages")
+	f.cursors = append(f.cursors, cur)
 	return &gmproto.ListMessagesResponse{Messages: f.messages}, nil
 }
 func (f *fakeAPI) ListContacts(context.Context) (*gmproto.ListContactsResponse, error) {

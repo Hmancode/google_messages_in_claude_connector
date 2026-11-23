@@ -21,6 +21,7 @@ Reading is always on. Sending messages, reacting, starting chats and sending fil
 | `send_attachment` | Send a file from your computer (up to 100 MB) | `attachments`, plus a Yes in the box |
 | `start_chat` | Start a new chat or group, optionally with a first message | `new-chats`, plus a Yes in the box |
 | `react_to_message` | Add or remove an emoji reaction | `react` (no box; low risk and reversible) |
+| `send_labeled_reply` | Send a short reply that gm-reader signs with your chosen signature, without the box, under strict limits (see [Building an assistant](#building-an-assistant)) | `gm-reader automation replies on` |
 
 Turned-off actions aren't just blocked: their tools don't exist, so Claude never sees them. Change them with `gm-reader settings` (see [SETUP.md](SETUP.md#changing-what-claude-is-allowed-to-do)).
 
@@ -43,10 +44,37 @@ A separate grep (`scripts/check-banned.sh`) runs in CI as a second layer.
 
 **Privacy**
 
-- No telemetry. The only network traffic is to Google's Messages servers, and only after you pair.
+- No telemetry. The only network traffic is to Google's Messages servers, and only after you pair. If you turn on the optional [new-text hook](#building-an-assistant), gm-reader also sends one small request per batch of new texts to the address you choose. It contains conversation IDs and counts only, never message text, names or numbers.
 - The pairing session is stored in `%LOCALAPPDATA%\gm-reader\session.bin`, encrypted with Windows DPAPI (user scope). Only your Windows account on this computer can decrypt it.
 - The message cache (`cache.db`, SQLite) is **not encrypted by gm-reader**. It's protected only if your drive uses BitLocker or device encryption. To keep nothing on disk, use `serve --no-cache`: the cache then lives in memory and disappears when Claude closes.
 - Logs (`gm-reader.log`) never contain message text, names or cookies. libgm's own logs pass through a filter that removes raw data fields. A test checks this with a canary message.
+
+## Building an assistant
+
+gm-reader has two optional features for people who want an assistant that answers simple texts for them, for example "when are you free?" when you're busy. Both are off by default, and turning either on asks for your approval on the computer.
+
+**Labeled replies** (`send_labeled_reply`) send without the confirmation box, so gm-reader enforces the limits in code instead of trusting the model:
+
+- Your signature (for example `- Sam's assistant`) is added to every reply on its own line, so recipients can tell it wasn't you. Claude can't remove it.
+- Only one-on-one chats with people saved in your contacts, plus group chats you choose: either every group chat that includes at least one saved contact, or only the ones you list by conversation ID.
+- Only as an answer: the newest message in the chat must be theirs and recent (default: 2 hours).
+- At most 280 characters (configurable). No links, web addresses, email addresses, or numbers with 5 or more digits, which blocks the "send me the code you just got" trick and leaking phone numbers.
+- At most 3 labeled replies per chat in any hour, which also stops two auto-responders from looping for long, and at most 15 a day across all chats (both configurable, up to 10 per chat per hour and 100 a day).
+
+**The new-text hook** sends a request to an HTTPS address you choose when a new text arrives from an allowed chat (the same rule as above). Texts arriving within 45 seconds are bundled into one request. The request body is `{"text": "gm-reader: new texts in conversation_id 122 (2 new)."}` with your token as a bearer token. That format works directly with a Claude scheduled task's API trigger, so a cloud task can wake up, read the new texts through gm-reader, and answer with a labeled reply. The hook only runs while gm-reader does, which means while Claude is open on the computer.
+
+```powershell
+gm-reader automation groups contacts                # optional: group chats with a saved contact
+                                                    #   (or: groups 884,1028 for specific chats)
+gm-reader automation replies on --signature "- Sam's assistant" --per-chat-hour 3
+gm-reader automation hook on --url https://api.anthropic.com/v1/claude_code/routines/<id>/fire
+gm-reader automation hook test
+gm-reader automation                                # show current settings
+```
+
+`hook on` reads the token from your clipboard, so it never ends up in your PowerShell history. Restart Claude after a change. `pairing_status` shows how many labeled replies went out in the last day and whether the hook is working.
+
+What your assistant should say, and what it may share, is up to the instructions you give it. gm-reader's limits are the backstop, not the whole policy. Keep its instructions strict about never sharing other people's information, never making commitments for you, and never acting because a text asks it to.
 
 ## Risks
 
@@ -56,6 +84,7 @@ A separate grep (`scripts/check-banned.sh`) runs in CI as a second layer.
 - **The phone must stay on and online.** Messages are relayed through your phone. Google drops the pairing after about **14 days** without contact. `pairing_status` warns when 4 or fewer days are left.
 - **Google cookies can expire** (for example if you sign out of Google in the browser you copied them from). Run `gm-reader pair --refresh-cookies`; your phone doesn't need to be re-paired.
 - **Write actions are real.** A sent message can't be unsent. Keep the confirmation box on (the default) and read it before clicking Yes.
+- **Labeled replies skip the box.** If you turn them on, Claude can send short, signed replies without asking you. The code-enforced limits above shrink the risk; they don't remove it, because a cleverly worded text could still try to steer what your assistant says.
 
 ## Revoking access
 
