@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27.4"
+  CGO_ENABLED: "0"
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.mod
+
+      - name: Resolve and verify modules
+        run: |
+          if [ ! -f go.sum ]; then echo "::warning::go.sum is missing; generating it (download the go-mod-files artifact and commit it)"; fi
+          go mod tidy
+          go mod verify
+          git diff --stat go.mod go.sum || true
+
+      - name: Upload go.mod and go.sum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-mod-files
+          path: |
+            go.mod
+            go.sum
+
+      - name: Formatting
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && echo "::error::run gofmt -w ." && exit 1)
+
+      - name: Vet
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...
+
+      - name: Test (includes the read-only guard)
+        run: go test ./...
+
+      - name: Banned-call grep
+        run: ./scripts/check-banned.sh
+
+      - name: Build
+        run: |
+          go build -trimpath -o dist/gm-reader ./cmd/gm-reader
+          GOOS=windows GOARCH=amd64 go build -trimpath -o dist/gm-reader.exe ./cmd/gm-reader
+
+      - name: Smoke test (stdio, no network ports, clean exit)
+        run: |
+          python3 scripts/smoke_test.py dist/gm-reader
+          python3 scripts/smoke_test.py dist/gm-reader --no-cache
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.mod
+
+      - name: Resolve modules
+        run: go mod tidy
+
+      - name: Test (DPAPI round trip runs for real here)
+        run: go test ./...
+
+      - name: Build
+        run: go build -trimpath -o dist/gm-reader.exe ./cmd/gm-reader
+
+      - name: Smoke test with netstat (no listening or open ports)
+        run: |
+          python scripts/smoke_test.py dist/gm-reader.exe
+          python scripts/smoke_test.py dist/gm-reader.exe --no-cache
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.mod
+
+      - name: Build release binary
+        run: |
+          go mod tidy
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" -o dist/gm-reader.exe ./cmd/gm-reader
+          cd dist && sha256sum gm-reader.exe > gm-reader.exe.sha256
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/gm-reader.exe dist/gm-reader.exe.sha256 --title "$GITHUB_REF_NAME" --generate-notes
