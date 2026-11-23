@@ -65,6 +65,25 @@ func TestHookOnlyForNewTextsFromAllowedSenders(t *testing.T) {
 	if texts[0] != "gm-reader: new texts in conversation_id d1 (1 new), conversation_id g1 (1 new)." {
 		t.Fatalf("unexpected hook text: %q", texts[0])
 	}
+	texts = nil
+	mu.Unlock()
+
+	// With groups_with_contacts on, g2 (has a saved contact) counts too, but a
+	// group of strangers still doesn't.
+	if err := s.db.UpsertConversation(model.Conversation{ID: "g3", IsGroup: true, Participants: []model.Participant{me, {ID: "x"}, {ID: "y"}}}); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.settings.Automation.Groups = nil
+	s.settings.Automation.GroupsWithContacts = true
+	s.mu.Unlock()
+	s.Message(msg("8", "g2", true, false, time.Now()))
+	s.Message(msg("9", "g3", true, false, time.Now()))
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	if len(texts) != 1 || texts[0] != "gm-reader: new texts in conversation_id g2 (1 new)." {
+		t.Fatalf("unexpected hook requests with groups_with_contacts: %v", texts)
+	}
 	if strings.Contains(texts[0], "secret") || strings.Contains(texts[0], "Saved Friend") {
 		t.Fatal("hook must not carry message text or names")
 	}
@@ -93,7 +112,7 @@ func TestReplyLedgerPersistsAndTrims(t *testing.T) {
 	if len(f.ReplyLog["d1"]) != 1 || !f.ReplyLog["d1"][0].Equal(now) {
 		t.Fatalf("log not persisted or not trimmed: %v", f.ReplyLog)
 	}
-	if !s.LastReply("d1").Equal(now) {
-		t.Fatal("LastReply wrong")
+	if got := s.ChatRepliesSince("d1", now.Add(-time.Hour)); len(got) != 1 || !got[0].Equal(now) {
+		t.Fatalf("ChatRepliesSince wrong: %v", got)
 	}
 }

@@ -56,16 +56,17 @@ gm-reader has two optional features for people who want an assistant that answer
 **Labeled replies** (`send_labeled_reply`) send without the confirmation box, so gm-reader enforces the limits in code instead of trusting the model:
 
 - Your signature (for example `- Sam's assistant`) is added to every reply on its own line, so recipients can tell it wasn't you. Claude can't remove it.
-- Only one-on-one chats with people saved in your contacts, plus group chats you list by conversation ID.
+- Only one-on-one chats with people saved in your contacts, plus group chats you choose: either every group chat that includes at least one saved contact, or only the ones you list by conversation ID.
 - Only as an answer: the newest message in the chat must be theirs and recent (default: 2 hours).
 - At most 280 characters (configurable). No links, web addresses, email addresses, or numbers with 5 or more digits, which blocks the "send me the code you just got" trick and leaking phone numbers.
-- At most one labeled reply per chat every 3 hours, which also stops two auto-responders from looping, and at most 15 a day (both configurable).
+- At most 3 labeled replies per chat in any hour, which also stops two auto-responders from looping for long, and at most 15 a day across all chats (both configurable, up to 10 per chat per hour and 100 a day).
 
 **The new-text hook** sends a request to an HTTPS address you choose when a new text arrives from an allowed chat (the same rule as above). Texts arriving within 45 seconds are bundled into one request. The request body is `{"text": "gm-reader: new texts in conversation_id 122 (2 new)."}` with your token as a bearer token. That format works directly with a Claude scheduled task's API trigger, so a cloud task can wake up, read the new texts through gm-reader, and answer with a labeled reply. The hook only runs while gm-reader does, which means while Claude is open on the computer.
 
 ```powershell
-gm-reader automation groups 884,1028                # optional: group chats by conversation ID
-gm-reader automation replies on --signature "- Sam's assistant"
+gm-reader automation groups contacts                # optional: group chats with a saved contact
+                                                    #   (or: groups 884,1028 for specific chats)
+gm-reader automation replies on --signature "- Sam's assistant" --per-chat-hour 3
 gm-reader automation hook on --url https://api.anthropic.com/v1/claude_code/routines/<id>/fire
 gm-reader automation hook test
 gm-reader automation                                # show current settings

@@ -47,9 +47,12 @@ type Settings struct {
 type Automation struct {
 	// Groups lists group-chat conversation IDs that automation may watch and
 	// reply in. One-on-one chats with saved contacts are always included.
-	Groups  []string      `json:"groups,omitempty"`
-	Replies ReplySettings `json:"replies"`
-	Hook    HookSettings  `json:"hook"`
+	Groups []string `json:"groups,omitempty"`
+	// GroupsWithContacts also includes every group chat that has at least one
+	// person saved in the phone's contacts.
+	GroupsWithContacts bool          `json:"groups_with_contacts,omitempty"`
+	Replies            ReplySettings `json:"replies"`
+	Hook               HookSettings  `json:"hook"`
 }
 
 // ReplySettings configures labeled replies.
@@ -58,17 +61,17 @@ type ReplySettings struct {
 	// Signature is appended by gm-reader to every labeled reply, on its own line.
 	Signature     string `json:"signature"`
 	MaxChars      int    `json:"max_chars,omitempty"`      // per reply, before the signature
-	GapMinutes    int    `json:"gap_minutes,omitempty"`    // minimum time between labeled replies in one chat
+	PerChatHour   int    `json:"per_chat_hour,omitempty"`  // labeled replies per chat in any 60 minutes
 	DailyMax      int    `json:"daily_max,omitempty"`      // labeled replies per 24 hours, all chats
 	WindowMinutes int    `json:"window_minutes,omitempty"` // the newest message must be theirs and this recent
 }
 
 // Defaults for labeled replies.
 const (
-	DefaultReplyMaxChars = 280
-	DefaultReplyGap      = 180
-	DefaultReplyDailyMax = 15
-	DefaultReplyWindow   = 120
+	DefaultReplyMaxChars    = 280
+	DefaultReplyPerChatHour = 3
+	DefaultReplyDailyMax    = 15
+	DefaultReplyWindow      = 120
 )
 
 // Limits returns the settings with defaults filled in.
@@ -76,8 +79,8 @@ func (r ReplySettings) Limits() ReplySettings {
 	if r.MaxChars <= 0 {
 		r.MaxChars = DefaultReplyMaxChars
 	}
-	if r.GapMinutes <= 0 {
-		r.GapMinutes = DefaultReplyGap
+	if r.PerChatHour <= 0 {
+		r.PerChatHour = DefaultReplyPerChatHour
 	}
 	if r.DailyMax <= 0 {
 		r.DailyMax = DefaultReplyDailyMax
@@ -94,6 +97,15 @@ type HookSettings struct {
 	URL          string `json:"url"`
 	Token        string `json:"token"` // sent as a bearer token; never logged or shown
 	BatchSeconds int    `json:"batch_seconds,omitempty"`
+}
+
+// GroupSet returns the allowed group IDs as a set.
+func (a Automation) GroupSet() map[string]bool {
+	m := map[string]bool{}
+	for _, g := range a.Groups {
+		m[g] = true
+	}
+	return m
 }
 
 // AllowsGroup reports whether a group chat is on the automation list.

@@ -19,10 +19,11 @@ import (
 const automationUsage = `gm-reader automation: features for building an assistant on gm-reader
 
   gm-reader automation                          Show the current automation settings
-  gm-reader automation groups 884,1028          Group chats (by conversation ID) automation may use
-  gm-reader automation groups none              Remove all group chats
+  gm-reader automation groups contacts          Any group chat with at least one saved contact
+  gm-reader automation groups 884,1028          Only these group chats (by conversation ID)
+  gm-reader automation groups none              No group chats
   gm-reader automation replies on --signature "- Sam's assistant"
-        [--max-chars 280] [--gap-minutes 180] [--daily 15] [--window-minutes 120]
+        [--max-chars 280] [--per-chat-hour 3] [--daily 15] [--window-minutes 120]
   gm-reader automation replies off
   gm-reader automation hook on --url https://...  (copy the token first; it's read from the clipboard)
         [--token-file PATH] [--batch-seconds 45]
@@ -35,16 +36,21 @@ asks for approval on this computer. Restart Claude after a change.
 
 func printAutomation(a session.Automation) {
 	fmt.Println("Automation")
-	if len(a.Groups) == 0 {
+	switch {
+	case a.GroupsWithContacts && len(a.Groups) > 0:
+		fmt.Println("  Chats:            one-on-one chats with saved contacts, group chats with at least one saved contact, plus groups " + strings.Join(a.Groups, ", "))
+	case a.GroupsWithContacts:
+		fmt.Println("  Chats:            one-on-one chats with saved contacts, and group chats with at least one saved contact")
+	case len(a.Groups) == 0:
 		fmt.Println("  Chats:            one-on-one chats with saved contacts (no group chats)")
-	} else {
+	default:
 		fmt.Println("  Chats:            one-on-one chats with saved contacts, plus groups " + strings.Join(a.Groups, ", "))
 	}
 	r := a.Replies.Limits()
 	if a.Replies.Enabled {
 		fmt.Printf("  Labeled replies:  ON, signed %q\n", r.Signature)
-		fmt.Printf("                    up to %d characters, one per chat every %d min, %d per day, only answering messages under %d min old\n",
-			r.MaxChars, r.GapMinutes, r.DailyMax, r.WindowMinutes)
+		fmt.Printf("                    up to %d characters, %d per chat per hour, %d per day, only answering messages under %d min old\n",
+			r.MaxChars, r.PerChatHour, r.DailyMax, r.WindowMinutes)
 	} else {
 		fmt.Println("  Labeled replies:  off")
 	}
@@ -118,8 +124,16 @@ func runAutomation(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "groups":
 		if len(args) != 2 {
-			return errors.New("usage: gm-reader automation groups 884,1028   (or: groups none)")
+			return errors.New("usage: gm-reader automation groups contacts   (or: groups 884,1028, or: groups none)")
 		}
+		if args[1] == "contacts" {
+			if !a.GroupsWithContacts {
+				loosen += "allow automation in every group chat that includes at least one person saved in your contacts\n"
+			}
+			a.GroupsWithContacts = true
+			break
+		}
+		a.GroupsWithContacts = false
 		var ids []string
 		if args[1] != "none" {
 			for _, id := range strings.Split(args[1], ",") {
@@ -151,7 +165,7 @@ func runAutomation(ctx context.Context, args []string) error {
 			fs := flag.NewFlagSet("replies on", flag.ExitOnError)
 			sig := fs.String("signature", a.Replies.Signature, "signature added to every labeled reply")
 			maxChars := fs.Int("max-chars", a.Replies.Limits().MaxChars, "maximum characters per reply")
-			gap := fs.Int("gap-minutes", a.Replies.Limits().GapMinutes, "minimum minutes between labeled replies in one chat")
+			perHour := fs.Int("per-chat-hour", a.Replies.Limits().PerChatHour, "maximum labeled replies per chat in any hour")
 			daily := fs.Int("daily", a.Replies.Limits().DailyMax, "maximum labeled replies per day")
 			window := fs.Int("window-minutes", a.Replies.Limits().WindowMinutes, "only answer messages newer than this")
 			_ = fs.Parse(args[2:])
@@ -161,14 +175,14 @@ func runAutomation(ctx context.Context, args []string) error {
 			switch {
 			case *maxChars < 20 || *maxChars > 600:
 				return errors.New("--max-chars must be between 20 and 600")
-			case *gap < 10:
-				return errors.New("--gap-minutes must be at least 10")
+			case *perHour < 1 || *perHour > 10:
+				return errors.New("--per-chat-hour must be between 1 and 10")
 			case *daily < 1 || *daily > 100:
 				return errors.New("--daily must be between 1 and 100")
 			case *window < 5 || *window > 24*60:
 				return errors.New("--window-minutes must be between 5 and 1440")
 			}
-			a.Replies = session.ReplySettings{Enabled: true, Signature: strings.TrimSpace(*sig), MaxChars: *maxChars, GapMinutes: *gap, DailyMax: *daily, WindowMinutes: *window}
+			a.Replies = session.ReplySettings{Enabled: true, Signature: strings.TrimSpace(*sig), MaxChars: *maxChars, PerChatHour: *perHour, DailyMax: *daily, WindowMinutes: *window}
 			loosen += fmt.Sprintf("turn ON labeled replies: Claude may send short replies signed %q WITHOUT asking you first\n", a.Replies.Signature)
 		default:
 			return errors.New("use: replies on   or   replies off")

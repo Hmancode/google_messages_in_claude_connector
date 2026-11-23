@@ -374,27 +374,64 @@ func (w *Writer) StartChat(ctx context.Context, numbers []string, groupName, fir
 // building an assistant that answers simple texts. Because no human approves
 // each one, every limit below is enforced here in code, not left to the model:
 //   - the configured signature is always appended, so recipients can tell;
-//   - only one-on-one chats with saved contacts, or group chats on the allowed list;
+//   - only one-on-one chats with saved contacts, group chats on the allowed list,
+//     and (if turned on) group chats that include at least one saved contact;
 //   - only as an answer: the newest message must be theirs and recent;
 //   - short, with no links, email addresses or long numbers (blocks leaking
 //     verification codes, phone numbers or addresses);
-//   - at most one per chat per gap, and a daily cap across all chats.
+//   - at most a set number per chat in any hour, and a daily cap across all chats.
 
 // LabeledConfig is the policy for labeled replies.
 type LabeledConfig struct {
-	Signature string
-	MaxChars  int
-	Gap       time.Duration
-	DailyMax  int
-	Window    time.Duration
-	Groups    map[string]bool
+	Signature          string
+	MaxChars           int
+	PerChatHour        int // labeled replies allowed per chat in any 60 minutes
+	DailyMax           int
+	Window             time.Duration
+	Groups             map[string]bool
+	GroupsWithContacts bool // also allow group chats that include a saved contact
 }
 
 // ReplyLedger remembers when labeled replies were sent, for the rate limits.
 type ReplyLedger interface {
-	LastReply(conversationID string) time.Time
+	ChatRepliesSince(conversationID string, t time.Time) []time.Time
 	CountSince(t time.Time) int
 	Record(conversationID string, t time.Time) error
+}
+
+// AutomationAllowed reports whether automation (labeled replies and the
+// new-text hook) may act in a conversation: a one-on-one chat with a saved
+// contact, a group chat on the allowed list, or, if groupsWithContacts is set,
+// a group chat that includes at least one saved contact. It returns nil when
+// allowed and an error saying why not otherwise.
+func AutomationAllowed(conv model.Conversation, groups map[string]bool, groupsWithContacts bool) error {
+	var others []model.Participant
+	contacts := 0
+	for _, p := range conv.Participants {
+		if p.IsMe {
+			continue
+		}
+		others = append(others, p)
+		if p.IsContact {
+			contacts++
+		}
+	}
+	if conv.IsGroup {
+		switch {
+		case groups[conv.ID]:
+			return nil
+		case groupsWithContacts && contacts > 0:
+			return nil
+		case groupsWithContacts:
+			return errors.New("this group chat has no one saved in the phone's contacts, so labeled replies aren't allowed")
+		default:
+			return errors.New("this group chat is not on the list of chats allowed for labeled replies")
+		}
+	}
+	if len(others) != 1 || contacts != 1 {
+		return errors.New("labeled replies only go to people saved in the phone's contacts")
+	}
+	return nil
 }
 
 // EnableLabeledReplies turns on labeled replies with the given policy.
@@ -461,20 +498,8 @@ func (w *Writer) SendLabeledReply(ctx context.Context, convID, text string) (Sen
 	if err != nil {
 		return SendResult{}, err
 	}
-	if m.IsGroup {
-		if !cfg.Groups[convID] {
-			return SendResult{}, errors.New("this group chat is not on the list of chats allowed for labeled replies")
-		}
-	} else {
-		var others []model.Participant
-		for _, p := range m.Participants {
-			if !p.IsMe {
-				others = append(others, p)
-			}
-		}
-		if len(others) != 1 || !others[0].IsContact {
-			return SendResult{}, errors.New("labeled replies only go to people saved in the phone's contacts")
-		}
+	if err := AutomationAllowed(m, cfg.Groups, cfg.GroupsWithContacts); err != nil {
+		return SendResult{}, err
 	}
 	msgs, err := w.c.Messages(ctx, convID, 5, nil)
 	if err != nil {
@@ -496,9 +521,15 @@ func (w *Writer) SendLabeledReply(ctx context.Context, convID, text string) (Sen
 	case now.Sub(latest.Time) > cfg.Window:
 		return SendResult{}, fmt.Errorf("the newest message is older than %d minutes; labeled replies only answer recent messages", int(cfg.Window.Minutes()))
 	}
-	if last := w.ledger.LastReply(convID); !last.IsZero() && now.Sub(last) < cfg.Gap {
-		wait := cfg.Gap - now.Sub(last)
-		return SendResult{}, fmt.Errorf("a labeled reply was already sent in this chat recently; the next one is allowed in %d minutes", int(wait.Minutes())+1)
+	if recent := w.ledger.ChatRepliesSince(convID, now.Add(-time.Hour)); len(recent) >= cfg.PerChatHour {
+		oldest := recent[0]
+		for _, t := range recent {
+			if t.Before(oldest) {
+				oldest = t
+			}
+		}
+		wait := oldest.Add(time.Hour).Sub(now)
+		return SendResult{}, fmt.Errorf("%d labeled replies were already sent in this chat in the last hour; the next one is allowed in %d minutes", len(recent), int(wait.Minutes())+1)
 	}
 	if n := w.ledger.CountSince(now.Add(-24 * time.Hour)); n >= cfg.DailyMax {
 		return SendResult{}, fmt.Errorf("the daily limit of %d labeled replies has been reached", cfg.DailyMax)

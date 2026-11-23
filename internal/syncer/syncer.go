@@ -128,17 +128,14 @@ func (s *Syncer) Load() error {
 	}
 	if auto.Replies.Enabled && strings.TrimSpace(auto.Replies.Signature) != "" {
 		lim := auto.Replies.Limits()
-		groups := map[string]bool{}
-		for _, g := range auto.Groups {
-			groups[g] = true
-		}
 		s.writer.EnableLabeledReplies(gm.LabeledConfig{
-			Signature: lim.Signature,
-			MaxChars:  lim.MaxChars,
-			Gap:       time.Duration(lim.GapMinutes) * time.Minute,
-			DailyMax:  lim.DailyMax,
-			Window:    time.Duration(lim.WindowMinutes) * time.Minute,
-			Groups:    groups,
+			Signature:          lim.Signature,
+			MaxChars:           lim.MaxChars,
+			PerChatHour:        lim.PerChatHour,
+			DailyMax:           lim.DailyMax,
+			Window:             time.Duration(lim.WindowMinutes) * time.Minute,
+			Groups:             auto.GroupSet(),
+			GroupsWithContacts: auto.GroupsWithContacts,
 		}, s)
 	}
 	if auto.Hook.Enabled && hook.Validate(auto.Hook.URL) == nil {
@@ -153,15 +150,17 @@ func (s *Syncer) Load() error {
 
 // --- gm.ReplyLedger, backed by the encrypted session file ---
 
-// LastReply returns when the last labeled reply went to a conversation.
-func (s *Syncer) LastReply(conversationID string) time.Time {
+// ChatRepliesSince returns when labeled replies went to a conversation after t.
+func (s *Syncer) ChatRepliesSince(conversationID string, t time.Time) []time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	ts := s.replyLog[conversationID]
-	if len(ts) == 0 {
-		return time.Time{}
+	var out []time.Time
+	for _, x := range s.replyLog[conversationID] {
+		if x.After(t) {
+			out = append(out, x)
+		}
 	}
-	return ts[len(ts)-1]
+	return out
 }
 
 // CountSince counts labeled replies sent after t.
@@ -202,7 +201,7 @@ func (s *Syncer) Record(conversationID string, t time.Time) error {
 }
 
 // automationAllows reports whether new texts in a conversation should trigger
-// the hook: one-on-one chats with a saved contact, or allowed group chats.
+// the hook, by the same rule as labeled replies (gm.AutomationAllowed).
 func (s *Syncer) automationAllows(conversationID string) bool {
 	s.mu.RLock()
 	auto := s.settings.Automation
@@ -211,16 +210,7 @@ func (s *Syncer) automationAllows(conversationID string) bool {
 	if err != nil || !ok {
 		return false
 	}
-	if conv.IsGroup {
-		return auto.AllowsGroup(conversationID)
-	}
-	var others []model.Participant
-	for _, p := range conv.Participants {
-		if !p.IsMe {
-			others = append(others, p)
-		}
-	}
-	return len(others) == 1 && others[0].IsContact
+	return gm.AutomationAllowed(conv, auto.GroupSet(), auto.GroupsWithContacts) == nil
 }
 
 // Settings returns the loaded settings.
@@ -615,13 +605,14 @@ type Report struct {
 
 // LabeledStatus describes labeled replies in pairing_status.
 type LabeledStatus struct {
-	Signature     string   `json:"signature"`
-	MaxChars      int      `json:"max_chars"`
-	GapMinutes    int      `json:"min_minutes_between_replies_per_chat"`
-	DailyMax      int      `json:"daily_max"`
-	WindowMinutes int      `json:"only_answers_messages_newer_than_minutes"`
-	SentLast24h   int      `json:"sent_last_24h"`
-	AllowedGroups []string `json:"allowed_group_conversation_ids"`
+	Signature          string   `json:"signature"`
+	MaxChars           int      `json:"max_chars"`
+	PerChatHour        int      `json:"max_replies_per_chat_per_hour"`
+	DailyMax           int      `json:"daily_max"`
+	WindowMinutes      int      `json:"only_answers_messages_newer_than_minutes"`
+	SentLast24h        int      `json:"sent_last_24h"`
+	AllowedGroups      []string `json:"allowed_group_conversation_ids"`
+	GroupsWithContacts bool     `json:"groups_with_a_saved_contact_allowed"`
 }
 
 // HookStatus describes the new-text hook in pairing_status.
@@ -680,9 +671,10 @@ func (s *Syncer) StatusReport() Report {
 			groups = []string{}
 		}
 		r.LabeledReplies = &LabeledStatus{
-			Signature: lim.Signature, MaxChars: lim.MaxChars, GapMinutes: lim.GapMinutes,
+			Signature: lim.Signature, MaxChars: lim.MaxChars, PerChatHour: lim.PerChatHour,
 			DailyMax: lim.DailyMax, WindowMinutes: lim.WindowMinutes,
 			SentLast24h: s.CountSince(time.Now().Add(-24 * time.Hour)), AllowedGroups: groups,
+			GroupsWithContacts: settings.Automation.GroupsWithContacts,
 		}
 	}
 	s.mu.RLock()

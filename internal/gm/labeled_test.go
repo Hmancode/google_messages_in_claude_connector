@@ -12,12 +12,14 @@ import (
 
 type memLedger struct{ log map[string][]time.Time }
 
-func (l *memLedger) LastReply(id string) time.Time {
-	ts := l.log[id]
-	if len(ts) == 0 {
-		return time.Time{}
+func (l *memLedger) ChatRepliesSince(id string, t time.Time) []time.Time {
+	var out []time.Time
+	for _, x := range l.log[id] {
+		if x.After(t) {
+			out = append(out, x)
+		}
 	}
-	return ts[len(ts)-1]
+	return out
 }
 func (l *memLedger) CountSince(t time.Time) int {
 	n := 0
@@ -51,6 +53,10 @@ func incoming(id string, minsAgo int, fromMe bool) *gmproto.Message {
 }
 
 func labeledSetup(t *testing.T, groups ...string) (*fakeAPI, *scripted, *Writer, *memLedger) {
+	return labeledSetupCfg(t, LabeledConfig{Signature: "— Sam's assistant", MaxChars: 280, PerChatHour: 2, DailyMax: 3, Window: 2 * time.Hour}, groups...)
+}
+
+func labeledSetupCfg(t *testing.T, cfg LabeledConfig, groups ...string) (*fakeAPI, *scripted, *Writer, *memLedger) {
 	t.Helper()
 	f := newFake()
 	f.convs["d1"] = &gmproto.Conversation{ConversationID: "d1", Name: "Tony", DefaultOutgoingID: "me1", Participants: []*gmproto.Participant{
@@ -60,6 +66,16 @@ func labeledSetup(t *testing.T, groups ...string) (*fakeAPI, *scripted, *Writer,
 	f.convs["d2"] = &gmproto.Conversation{ConversationID: "d2", Name: "(555) 000-1234", DefaultOutgoingID: "me1", Participants: []*gmproto.Participant{
 		{ID: &gmproto.SmallInfo{ParticipantID: "me1"}, IsMe: true, IsVisible: true},
 		{ID: &gmproto.SmallInfo{ParticipantID: "u1", Number: "+15550001234"}, FormattedNumber: "(555) 000-1234", IsVisible: true},
+	}}
+	f.convs["g8"] = &gmproto.Conversation{ConversationID: "g8", Name: "Team", IsGroupChat: true, DefaultOutgoingID: "me1", Participants: []*gmproto.Participant{
+		{ID: &gmproto.SmallInfo{ParticipantID: "me1"}, IsMe: true, IsVisible: true},
+		{ID: &gmproto.SmallInfo{ParticipantID: "t1", Number: "+15550009999"}, FullName: "Tony", ContactID: "c-77", IsVisible: true},
+		{ID: &gmproto.SmallInfo{ParticipantID: "u4", Number: "+15550004444"}, IsVisible: true},
+	}}
+	f.convs["g9"] = &gmproto.Conversation{ConversationID: "g9", Name: "Strangers", IsGroupChat: true, DefaultOutgoingID: "me1", Participants: []*gmproto.Participant{
+		{ID: &gmproto.SmallInfo{ParticipantID: "me1"}, IsMe: true, IsVisible: true},
+		{ID: &gmproto.SmallInfo{ParticipantID: "u2", Number: "+15550002222"}, IsVisible: true},
+		{ID: &gmproto.SmallInfo{ParticipantID: "u3", Number: "+15550003333"}, IsVisible: true},
 	}}
 	f.messages = []*gmproto.Message{incoming("m1", 5, false)}
 	c := newWithAPI(f, zerolog.Nop(), nopEvents{})
@@ -71,7 +87,8 @@ func labeledSetup(t *testing.T, groups ...string) (*fakeAPI, *scripted, *Writer,
 		g[id] = true
 	}
 	l := &memLedger{log: map[string][]time.Time{}}
-	w.EnableLabeledReplies(LabeledConfig{Signature: "— Sam's assistant", MaxChars: 280, Gap: 3 * time.Hour, DailyMax: 2, Window: 2 * time.Hour, Groups: g}, l)
+	cfg.Groups = g
+	w.EnableLabeledReplies(cfg, l)
 	return f, s, w, l
 }
 
@@ -124,6 +141,23 @@ func TestLabeledReplyWhoLimits(t *testing.T) {
 	}
 }
 
+func TestLabeledReplyGroupsWithContacts(t *testing.T) {
+	ctx := context.Background()
+	f, _, w, _ := labeledSetupCfg(t, LabeledConfig{Signature: "— Sam's assistant", MaxChars: 280, PerChatHour: 2, DailyMax: 5, Window: 2 * time.Hour, GroupsWithContacts: true})
+	if _, err := w.SendLabeledReply(ctx, "g8", "Henry's in class until 2."); err != nil {
+		t.Fatalf("group with a saved contact should work: %v", err)
+	}
+	if _, err := w.SendLabeledReply(ctx, "g9", "hi"); err == nil || !strings.Contains(err.Error(), "no one saved") {
+		t.Fatalf("group with no saved contacts must be refused, got %v", err)
+	}
+	if _, err := w.SendLabeledReply(ctx, "d2", "hi"); err == nil || !strings.Contains(err.Error(), "contacts") {
+		t.Fatalf("non-contact one-on-one must still be refused, got %v", err)
+	}
+	if countCalls(f, "SendMessage") != 1 {
+		t.Fatalf("expected one send, got %d", countCalls(f, "SendMessage"))
+	}
+}
+
 func TestLabeledReplyOnlyAnswersRecentIncoming(t *testing.T) {
 	ctx := context.Background()
 	f, _, w, _ := labeledSetup(t)
@@ -167,18 +201,23 @@ func TestLabeledReplyContentLimits(t *testing.T) {
 func TestLabeledReplyRateLimits(t *testing.T) {
 	ctx := context.Background()
 	f, _, w, l := labeledSetup(t, "c1")
+	// An older reply outside the hour doesn't count toward the per-chat limit.
+	l.log["d1"] = []time.Time{labeledNow.Add(-61 * time.Minute)}
 	if _, err := w.SendLabeledReply(ctx, "d1", "busy until 4"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.SendLabeledReply(ctx, "d1", "still busy"); err == nil || !strings.Contains(err.Error(), "recently") {
-		t.Fatalf("per-chat gap must apply, got %v", err)
+	if _, err := w.SendLabeledReply(ctx, "d1", "still busy"); err != nil {
+		t.Fatalf("second reply in the hour is allowed: %v", err)
 	}
-	l.log["other"] = []time.Time{labeledNow.Add(-time.Hour)}
+	if _, err := w.SendLabeledReply(ctx, "d1", "busy busy"); err == nil || !strings.Contains(err.Error(), "last hour") {
+		t.Fatalf("per-chat hourly limit must apply, got %v", err)
+	}
+	// Daily cap is 3 across all chats: 3 in the log within 24 hours (one older than an hour).
 	if _, err := w.SendLabeledReply(ctx, "c1", "busy until 4"); err == nil || !strings.Contains(err.Error(), "daily limit") {
 		t.Fatalf("daily cap must apply, got %v", err)
 	}
-	if countCalls(f, "SendMessage") != 1 {
-		t.Fatalf("expected exactly one send, got %d", countCalls(f, "SendMessage"))
+	if countCalls(f, "SendMessage") != 2 {
+		t.Fatalf("expected exactly two sends, got %d", countCalls(f, "SendMessage"))
 	}
 }
 

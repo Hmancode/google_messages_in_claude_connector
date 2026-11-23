@@ -94,4 +94,25 @@ func TestAutomationGroupsAndHook(t *testing.T) {
 	if strings.Join(a.Groups, ",") != "884,1028" || !a.Hook.Enabled || a.Hook.Token != "sk-test-token" {
 		t.Fatalf("unexpected automation settings: %+v", a)
 	}
+	// "contacts" needs approval and is refused without it.
+	answer("no\n")
+	if err := runAutomation(ctx, []string{"groups", "contacts"}); err == nil {
+		t.Fatal("groups contacts must need approval")
+	}
+	answer("yes\n")
+	if err := runAutomation(ctx, []string{"groups", "contacts"}); err != nil {
+		t.Fatal(err)
+	}
+	f, _ = st.Load()
+	if !f.Settings.Automation.GroupsWithContacts {
+		t.Fatal("groups_with_contacts not saved")
+	}
+	answer("")
+	if err := runAutomation(ctx, []string{"groups", "none"}); err != nil {
+		t.Fatal(err)
+	}
+	f, _ = st.Load()
+	if f.Settings.Automation.GroupsWithContacts || len(f.Settings.Automation.Groups) != 0 {
+		t.Fatalf("groups none should clear everything: %+v", f.Settings.Automation)
+	}
 }

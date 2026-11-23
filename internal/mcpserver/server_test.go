@@ -149,14 +149,14 @@ func TestLabeledReplyToolOnlyWhenEnabled(t *testing.T) {
 			t.Fatal("labeled replies must not be offered unless enabled")
 		}
 	}
-	w.EnableLabeledReplies(gm.LabeledConfig{Signature: "— Sam's assistant", MaxChars: 280, Gap: 3 * time.Hour, DailyMax: 15, Window: 2 * time.Hour}, nil)
+	w.EnableLabeledReplies(gm.LabeledConfig{Signature: "— Sam's assistant", MaxChars: 280, PerChatHour: 5, DailyMax: 15, Window: 2 * time.Hour}, nil)
 	cs = connect(t, fakeBackend{writer: w})
 	_, tools := toolNames(t, cs)
 	tl, ok := tools["send_labeled_reply"]
 	if !ok {
 		t.Fatal("send_labeled_reply missing when enabled")
 	}
-	if !strings.Contains(tl.Description, "Sam's assistant") || !strings.Contains(tl.Description, "280 characters") {
+	if !strings.Contains(tl.Description, "Sam's assistant") || !strings.Contains(tl.Description, "280 characters") || !strings.Contains(tl.Description, "at most 5 labeled replies per chat") {
 		t.Fatalf("description must state the signature and limits: %s", tl.Description)
 	}
 }
